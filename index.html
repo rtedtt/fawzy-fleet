@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>شركة فوزي عبده | إدارة الأسطول والصيانة</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style type="text/tailwindcss">
+body{font-family:Cairo,sans-serif}
+@layer components{
+.card{@apply bg-white rounded-2xl border border-slate-200 p-4 shadow-sm}
+.inp{@apply w-full border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400}
+.lbl{@apply block text-sm font-semibold text-slate-600 mb-1}
+.btn{@apply bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-900 font-extrabold rounded-xl px-5 py-2.5 transition}
+.nav-btn{@apply w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:bg-slate-800 transition}
+.nav-btn.active{@apply bg-amber-500 text-slate-900 font-bold}
+.kpi{@apply card flex items-center gap-4}
+.ico{@apply w-12 h-12 rounded-xl grid place-items-center text-xl bg-amber-100 text-orange-600}
+}
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+<!-- ============ شاشة تسجيل الدخول ============ -->
+<section id="login" class="min-h-screen grid place-items-center bg-slate-900 p-4">
+  <form id="login-form" onsubmit="return false" class="w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl border-t-8 border-amber-500">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-12 h-12 rounded-xl bg-amber-500 text-slate-900 grid place-items-center text-3xl font-black -skew-x-6">ف</div>
+      <div class="leading-tight"><div class="text-xl font-black">شركة <span class="text-orange-600">فوزي عبده</span></div><div class="text-xs text-slate-500">للخرسانة والأسفلت</div></div>
+    </div>
+    <h1 class="text-lg font-extrabold mb-4">تسجيل الدخول</h1>
+    <label class="lbl">البريد الإلكتروني</label>
+    <input id="email" type="email" class="inp mb-3" dir="ltr" required autocomplete="username">
+    <label class="lbl">كلمة المرور</label>
+    <input id="password" type="password" class="inp mb-3" dir="ltr" required autocomplete="current-password">
+    <p id="login-error" class="hidden text-red-600 text-sm mb-3"></p>
+    <button type="button" id="login-btn" class="btn w-full">دخول</button>
+    <p id="demo-note" class="hidden mt-4 text-xs bg-amber-50 text-amber-800 rounded-lg p-3">وضع تجريبي: لم تُضف مفاتيح Firebase بعد. ادخل بأي بريد وكلمة مرور، والبيانات تُحذف عند تحديث الصفحة.</p>
+  </form>
+</section>
+
+<!-- ============ التطبيق ============ -->
+<div id="app" class="hidden">
+  <div id="overlay" class="hidden fixed inset-0 bg-black/50 z-30 md:hidden"></div>
+
+  <aside id="sidebar" class="fixed inset-y-0 right-0 w-64 bg-slate-900 text-white z-40 p-4 flex flex-col transition-transform translate-x-full md:translate-x-0">
+    <div class="flex items-center gap-3 mb-8 mt-2">
+      <div class="w-11 h-11 rounded-xl bg-amber-500 text-slate-900 grid place-items-center text-2xl font-black -skew-x-6">ف</div>
+      <div class="leading-tight"><div class="text-lg font-black">شركة <span class="text-amber-400">فوزي عبده</span></div><div class="text-[11px] text-slate-400">للخرسانة والأسفلت</div></div>
+    </div>
+    <nav class="space-y-1 flex-1">
+      <button class="nav-btn" data-nav="dashboard"><i class="fa-solid fa-gauge-high w-5"></i>الرئيسية</button>
+      <button class="nav-btn" data-nav="vehicles"><i class="fa-solid fa-truck-monster w-5"></i>إدارة المعدات</button>
+      <button class="nav-btn" data-nav="expenses"><i class="fa-solid fa-file-invoice-dollar w-5"></i>المصروفات والصيانة</button>
+      <button class="nav-btn" data-nav="reports"><i class="fa-solid fa-chart-column w-5"></i>البحث والتقارير</button>
+    </nav>
+    <button id="logout" class="nav-btn"><i class="fa-solid fa-right-from-bracket w-5"></i>تسجيل الخروج</button>
+  </aside>
+
+  <div class="md:mr-64 min-h-screen">
+    <header class="sticky top-0 z-20 bg-white border-b border-slate-200 h-16 px-4 flex items-center justify-between">
+      <button id="menu-btn" class="md:hidden text-2xl text-slate-700" aria-label="القائمة"><i class="fa-solid fa-bars"></i></button>
+      <div class="flex items-center gap-2">
+        <div class="w-9 h-9 rounded-lg bg-amber-500 text-slate-900 grid place-items-center text-xl font-black -skew-x-6">ف</div>
+        <div class="font-black text-slate-900">شركة <span class="text-orange-600">فوزي عبده</span></div>
+      </div>
+      <span id="user-email" class="hidden sm:block text-sm text-slate-500" dir="ltr"></span>
+    </header>
+
+    <main class="p-4 md:p-6 max-w-6xl mx-auto">
+
+      <!-- الرئيسية -->
+      <div id="view-dashboard" class="view space-y-5">
+        <h2 class="text-xl font-extrabold">الرئيسية</h2>
+        <div class="grid sm:grid-cols-3 gap-4">
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-coins"></i></div><div><div class="text-sm text-slate-500">مصروفات الشهر</div><div id="k-exp" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-truck"></i></div><div><div class="text-sm text-slate-500">معدات تعمل</div><div id="k-active" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-screwdriver-wrench"></i></div><div><div class="text-sm text-slate-500">تحت الصيانة</div><div id="k-maint" class="text-2xl font-extrabold">0</div></div></div>
+        </div>
+        <div class="card"><h3 class="font-extrabold mb-3"><i class="fa-solid fa-bell text-orange-600 ml-2"></i>تنبيهات تغيير الزيت</h3><div id="alerts" class="space-y-2"></div></div>
+      </div>
+
+      <!-- إدارة المعدات -->
+      <div id="view-vehicles" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">إدارة المعدات</h2>
+        <form id="vehicle-form" class="card grid sm:grid-cols-2 gap-3">
+          <input type="hidden" name="vid">
+          <div><label class="lbl">نوع المعدة</label><select name="type" class="inp"><option>خلاطة</option><option>لودر</option><option>مضخة</option></select></div>
+          <div><label class="lbl">رقم المعدة</label><input name="number" class="inp" required></div>
+          <div><label class="lbl">رقم الشاسيه</label><input name="chassis" class="inp"></div>
+          <div><label class="lbl">اسم السائق</label><input name="driver" class="inp"></div>
+          <div><label class="lbl">ساعات التشغيل الحالية</label><input name="hours" type="number" min="0" class="inp" required></div>
+          <div><label class="lbl">ساعات آخر تغيير زيت</label><input name="lastOil" type="number" min="0" value="0" class="inp"></div>
+          <div><label class="lbl">الحالة</label><select name="status" class="inp"><option value="active">يعمل</option><option value="maintenance">في الصيانة</option></select></div>
+          <div class="flex items-end gap-2"><button class="btn flex-1">حفظ المعدة</button><button type="button" id="v-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+        </form>
+        <div id="v-list" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+
+      <!-- المصروفات والصيانة -->
+      <div id="view-expenses" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">المصروفات والصيانة</h2>
+        <form id="expense-form" class="card grid sm:grid-cols-2 gap-3">
+          <div><label class="lbl">المعدة</label><select name="vehicleId" id="exp-vehicle" class="inp" required></select></div>
+          <div><label class="lbl">نوع المصروف</label><select name="category" class="inp"><option value="fuel">وقود</option><option value="parts">قطع غيار</option><option value="oil">تغيير زيت</option><option value="tires">إطارات</option></select></div>
+          <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
+          <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+          <div class="sm:col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+          <div class="sm:col-span-2"><label class="lbl">صورة الفاتورة</label><input name="invoice" type="file" accept="image/*" class="inp file:ml-3 file:border-0 file:rounded-lg file:bg-slate-800 file:text-white file:px-3 file:py-1"></div>
+          <div class="sm:col-span-2"><button class="btn w-full sm:w-auto">حفظ المصروف</button></div>
+        </form>
+      </div>
+
+      <!-- البحث والتقارير -->
+      <div id="view-reports" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">البحث والتقارير</h2>
+        <div class="card grid sm:grid-cols-4 gap-3 items-end">
+          <div><label class="lbl">من تاريخ</label><input id="r-from" type="date" class="inp"></div>
+          <div><label class="lbl">إلى تاريخ</label><input id="r-to" type="date" class="inp"></div>
+          <div><label class="lbl">رقم المعدة</label><input id="r-q" class="inp" placeholder="ابحث برقم المعدة"></div>
+          <button id="export-btn" class="btn"><i class="fa-solid fa-file-excel ml-2"></i>تصدير إلى Excel</button>
+        </div>
+        <div class="card overflow-x-auto">
+          <table class="w-full text-sm text-right whitespace-nowrap">
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>النوع</th><th>المبلغ</th><th>ملاحظات</th><th>الفاتورة</th><th>حذف</th></tr></thead>
+            <tbody id="r-body"></tbody>
+          </table>
+          <div id="r-total" class="mt-3 font-extrabold text-orange-600"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
