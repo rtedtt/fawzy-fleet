@@ -19,6 +19,7 @@ body{font-family:Cairo,sans-serif}
 .nav-btn.active{@apply bg-amber-500 text-slate-900 font-bold}
 .kpi{@apply card flex items-center gap-4}
 .ico{@apply w-12 h-12 rounded-xl grid place-items-center text-xl bg-amber-100 text-orange-600}
+.chip{@apply px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold hover:bg-amber-200 transition}
 }
 </style>
 </head>
@@ -88,7 +89,16 @@ body{font-family:Cairo,sans-serif}
         <h2 class="text-xl font-extrabold">إدارة المعدات</h2>
         <form id="vehicle-form" class="card grid sm:grid-cols-2 gap-3">
           <input type="hidden" name="vid">
-          <div><label class="lbl">نوع المعدة</label><select name="type" class="inp"><option>خلاطة</option><option>لودر</option><option>مضخة</option></select></div>
+          <div>
+            <label class="lbl">نوع المعدة</label>
+            <select name="type" class="inp">
+              <option value="خلاطة">خلاطة</option>
+              <option value="لودر">لودر</option>
+              <option value="مضخة">مضخة</option>
+              <option value="other">أخرى</option>
+            </select>
+            <input name="customType" class="inp mt-2 hidden" placeholder="أدخل نوع المعدة">
+          </div>
           <div><label class="lbl">رقم المعدة</label><input name="number" class="inp" required></div>
           <div><label class="lbl">رقم الشاسيه</label><input name="chassis" class="inp"></div>
           <div><label class="lbl">اسم السائق</label><input name="driver" class="inp"></div>
@@ -105,7 +115,27 @@ body{font-family:Cairo,sans-serif}
         <h2 class="text-xl font-extrabold">المصروفات والصيانة</h2>
         <form id="expense-form" class="card grid sm:grid-cols-2 gap-3">
           <div><label class="lbl">المعدة</label><select name="vehicleId" id="exp-vehicle" class="inp" required></select></div>
-          <div><label class="lbl">نوع المصروف</label><select name="category" class="inp"><option value="fuel">وقود</option><option value="parts">قطع غيار</option><option value="oil">تغيير زيت</option><option value="tires">إطارات</option></select></div>
+          <div>
+            <label class="lbl">نوع المصروف</label>
+            <select name="category" class="inp">
+              <option value="fuel">وقود</option>
+              <option value="parts">قطع غيار</option>
+              <option value="oil">تغيير زيت</option>
+              <option value="tires">إطارات</option>
+              <option value="other">أخرى</option>
+            </select>
+            <input name="customCategory" class="inp mt-2 hidden" placeholder="أدخل اسم المصروف" list="cat-suggestions" autocomplete="off">
+            <div data-sugg class="hidden flex flex-wrap items-center gap-1.5 mt-2"></div>
+          </div>
+
+          <!-- بيانات الاستهلاك: تظهر عند اختيار "وقود" فقط -->
+          <div data-fuel class="hidden sm:col-span-2 grid sm:grid-cols-2 gap-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
+            <div class="sm:col-span-2 text-sm font-bold text-amber-800"><i class="fa-solid fa-gas-pump ml-2"></i>بيانات الاستهلاك (اختيارية)</div>
+            <div><label class="lbl">عدد اللترات</label><input name="liters" type="number" min="0" step="0.01" inputmode="decimal" class="inp"></div>
+            <div><label class="lbl">ساعات تشغيل المعدة الآن</label><input name="engineHours" type="number" min="0" step="any" inputmode="decimal" class="inp"></div>
+            <label class="sm:col-span-2 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" name="syncHours" checked class="w-4 h-4 accent-amber-500">تحديث ساعات تشغيل المعدة بهذه القراءة (يُحدّث تنبيهات الزيت)</label>
+          </div>
+
           <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
           <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
           <div class="sm:col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
@@ -123,9 +153,22 @@ body{font-family:Cairo,sans-serif}
           <div><label class="lbl">رقم المعدة</label><input id="r-q" class="inp" placeholder="ابحث برقم المعدة"></div>
           <button id="export-btn" class="btn"><i class="fa-solid fa-file-excel ml-2"></i>تصدير إلى Excel</button>
         </div>
+
+        <!-- متابعة استهلاك الوقود -->
+        <div class="card">
+          <h3 class="font-extrabold mb-1"><i class="fa-solid fa-gas-pump text-orange-600 ml-2"></i>متابعة استهلاك الوقود</h3>
+          <p class="text-xs text-slate-500 mb-3">يتبع نفس فلاتر البحث أعلاه. حساب اللتر/ساعة يحتاج تعبئتين على الأقل مسجّل بهما عدد اللترات وساعات التشغيل.</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-right whitespace-nowrap">
+              <thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة</th><th>عدد التعبئات</th><th>إجمالي اللترات</th><th>سعر اللتر</th><th>ساعات التشغيل</th><th>لتر / ساعة</th><th>تكلفة / ساعة</th></tr></thead>
+              <tbody id="fuel-body"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="card overflow-x-auto">
           <table class="w-full text-sm text-right whitespace-nowrap">
-            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>النوع</th><th>المبلغ</th><th>ملاحظات</th><th>الفاتورة</th><th>حذف</th></tr></thead>
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>النوع</th><th>المبلغ</th><th>لترات</th><th>ساعات</th><th>ملاحظات</th><th>الفاتورة</th><th>إجراءات</th></tr></thead>
             <tbody id="r-body"></tbody>
           </table>
           <div id="r-total" class="mt-3 font-extrabold text-orange-600"></div>
@@ -135,6 +178,49 @@ body{font-family:Cairo,sans-serif}
     </main>
   </div>
 </div>
+
+<!-- ============ نافذة تعديل المصروف ============ -->
+<div id="edit-modal" class="hidden fixed inset-0 z-50 bg-black/50 overflow-y-auto p-4" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+  <form id="edit-form" class="card max-w-lg mx-auto my-6 grid sm:grid-cols-2 gap-3">
+    <input type="hidden" name="eid">
+    <div class="sm:col-span-2 flex items-center justify-between">
+      <h3 id="edit-title" class="text-lg font-extrabold">تعديل المصروف</h3>
+      <button type="button" id="edit-close" class="text-2xl text-slate-500 leading-none" aria-label="إغلاق">&times;</button>
+    </div>
+    <div class="sm:col-span-2 text-sm text-slate-600">المعدة: <b id="edit-vehicle"></b></div>
+
+    <div class="sm:col-span-2">
+      <label class="lbl">نوع المصروف</label>
+      <select name="category" class="inp">
+        <option value="fuel">وقود</option>
+        <option value="parts">قطع غيار</option>
+        <option value="oil">تغيير زيت</option>
+        <option value="tires">إطارات</option>
+        <option value="other">أخرى</option>
+      </select>
+      <input name="customCategory" class="inp mt-2 hidden" placeholder="أدخل اسم المصروف" list="cat-suggestions" autocomplete="off">
+      <div data-sugg class="hidden flex flex-wrap items-center gap-1.5 mt-2"></div>
+    </div>
+
+    <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
+    <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+
+    <div data-fuel class="hidden sm:col-span-2 grid sm:grid-cols-2 gap-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
+      <div class="sm:col-span-2 text-sm font-bold text-amber-800"><i class="fa-solid fa-gas-pump ml-2"></i>بيانات الاستهلاك (اختيارية)</div>
+      <div><label class="lbl">عدد اللترات</label><input name="liters" type="number" min="0" step="0.01" inputmode="decimal" class="inp"></div>
+      <div><label class="lbl">ساعات تشغيل المعدة</label><input name="engineHours" type="number" min="0" step="any" inputmode="decimal" class="inp"></div>
+    </div>
+
+    <div class="sm:col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+    <div class="sm:col-span-2 flex gap-2">
+      <button class="btn flex-1">حفظ التعديلات</button>
+      <button type="button" id="edit-cancel" class="px-5 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button>
+    </div>
+  </form>
+</div>
+
+<!-- اقتراحات أسماء المصروفات المخصصة المستخدمة سابقاً -->
+<datalist id="cat-suggestions"></datalist>
 
 <script src="app.js"></script>
 </body>
