@@ -15,11 +15,11 @@ body{font-family:Cairo,sans-serif}
 .inp{@apply w-full border border-slate-300 rounded-xl px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-amber-400}
 .lbl{@apply block text-sm font-semibold text-slate-600 mb-1}
 .btn{@apply bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-900 font-extrabold rounded-xl px-5 py-2.5 transition}
+.btn-dark{@apply bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl px-5 py-2.5 transition}
 .nav-btn{@apply w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:bg-slate-800 transition}
 .nav-btn.active{@apply bg-amber-500 text-slate-900 font-bold}
 .kpi{@apply card flex items-center gap-4}
 .ico{@apply w-12 h-12 rounded-xl grid place-items-center text-xl bg-amber-100 text-orange-600}
-.chip{@apply px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 text-xs font-bold hover:bg-amber-200 transition}
 }
 </style>
 </head>
@@ -28,9 +28,10 @@ body{font-family:Cairo,sans-serif}
 <!-- ============ شاشة تسجيل الدخول ============ -->
 <section id="login" class="min-h-screen grid place-items-center bg-slate-900 p-4">
   <form id="login-form" onsubmit="return false" class="w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl border-t-8 border-amber-500">
-    <div class="flex items-center gap-3 mb-6">
-      <div class="w-12 h-12 rounded-xl bg-amber-500 text-slate-900 grid place-items-center text-3xl font-black -skew-x-6">ف</div>
-      <div class="leading-tight"><div class="text-xl font-black">شركة <span class="text-orange-600">فوزي عبده</span></div><div class="text-xs text-slate-500">للخرسانة والأسفلت</div></div>
+    <div class="flex flex-col items-center text-center mb-6">
+      <img src="452624.jpg" alt="شعار شركة فوزي عبده" class="w-28 h-28 object-contain mb-3" onerror="this.classList.add('hidden')">
+      <div class="text-xl font-black">شركة <span class="text-orange-600">فوزي عبده</span></div>
+      <div class="text-xs text-slate-500">للخرسانة والأسفلت</div>
     </div>
     <h1 class="text-lg font-extrabold mb-4">تسجيل الدخول</h1>
     <label class="lbl">البريد الإلكتروني</label>
@@ -47,10 +48,11 @@ body{font-family:Cairo,sans-serif}
 <div id="app" class="hidden">
   <div id="overlay" class="hidden fixed inset-0 bg-black/50 z-30 md:hidden"></div>
 
-  <aside id="sidebar" class="fixed inset-y-0 right-0 w-64 bg-slate-900 text-white z-40 p-4 flex flex-col transition-transform translate-x-full md:translate-x-0">
-    <div class="flex items-center gap-3 mb-8 mt-2">
-      <div class="w-11 h-11 rounded-xl bg-amber-500 text-slate-900 grid place-items-center text-2xl font-black -skew-x-6">ف</div>
-      <div class="leading-tight"><div class="text-lg font-black">شركة <span class="text-amber-400">فوزي عبده</span></div><div class="text-[11px] text-slate-400">للخرسانة والأسفلت</div></div>
+  <aside id="sidebar" class="fixed inset-y-0 right-0 w-64 bg-slate-900 text-white z-40 p-4 flex flex-col transition-transform translate-x-full md:translate-x-0 overflow-y-auto">
+    <div class="flex flex-col items-center text-center mb-6 mt-2">
+      <img src="452624.jpg" alt="شعار شركة فوزي عبده" class="w-24 h-24 object-contain rounded-2xl bg-white p-1 mb-3" onerror="this.classList.add('hidden')">
+      <div class="text-lg font-black">شركة <span class="text-amber-400">فوزي عبده</span></div>
+      <div class="text-[11px] text-slate-400">للخرسانة والأسفلت</div>
     </div>
     <nav class="space-y-1 flex-1">
       <button class="nav-btn" data-nav="dashboard"><i class="fa-solid fa-gauge-high w-5"></i>الرئيسية</button>
@@ -65,7 +67,7 @@ body{font-family:Cairo,sans-serif}
     <header class="sticky top-0 z-20 bg-white border-b border-slate-200 h-16 px-4 flex items-center justify-between">
       <button id="menu-btn" class="md:hidden text-2xl text-slate-700" aria-label="القائمة"><i class="fa-solid fa-bars"></i></button>
       <div class="flex items-center gap-2">
-        <div class="w-9 h-9 rounded-lg bg-amber-500 text-slate-900 grid place-items-center text-xl font-black -skew-x-6">ف</div>
+        <img src="452624.jpg" alt="شعار شركة فوزي عبده" class="md:hidden h-10 w-10 object-contain rounded-lg" onerror="this.classList.add('hidden')">
         <div class="font-black text-slate-900">شركة <span class="text-orange-600">فوزي عبده</span></div>
       </div>
       <span id="user-email" class="hidden sm:block text-sm text-slate-500" dir="ltr"></span>
@@ -76,12 +78,38 @@ body{font-family:Cairo,sans-serif}
       <!-- الرئيسية -->
       <div id="view-dashboard" class="view space-y-5">
         <h2 class="text-xl font-extrabold">الرئيسية</h2>
-        <div class="grid sm:grid-cols-3 gap-4">
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div class="kpi"><div class="ico"><i class="fa-solid fa-coins"></i></div><div><div class="text-sm text-slate-500">مصروفات الشهر</div><div id="k-exp" class="text-2xl font-extrabold">0</div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-truck"></i></div><div><div class="text-sm text-slate-500">معدات تعمل</div><div id="k-active" class="text-2xl font-extrabold">0</div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-screwdriver-wrench"></i></div><div><div class="text-sm text-slate-500">تحت الصيانة</div><div id="k-maint" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-id-card"></i></div><div><div class="text-sm text-slate-500">رخص منتهية / قاربت على الانتهاء</div><div id="k-lic" class="text-2xl font-extrabold">0</div></div></div>
         </div>
-        <div class="card"><h3 class="font-extrabold mb-3"><i class="fa-solid fa-bell text-orange-600 ml-2"></i>تنبيهات تغيير الزيت</h3><div id="alerts" class="space-y-2"></div></div>
+
+        <!-- إجراءات سريعة -->
+        <div class="card">
+          <h3 class="font-extrabold mb-3"><i class="fa-solid fa-bolt text-orange-600 ml-2"></i>إجراءات سريعة</h3>
+          <div class="flex flex-wrap gap-3">
+            <button type="button" data-go="expenses" class="btn"><i class="fa-solid fa-plus ml-2"></i>إضافة مصروف</button>
+            <button type="button" data-go="vehicles" class="btn-dark"><i class="fa-solid fa-truck-monster ml-2"></i>إدارة المعدات</button>
+            <button type="button" data-go="reports" class="btn-dark"><i class="fa-solid fa-chart-column ml-2"></i>التقارير</button>
+          </div>
+        </div>
+
+        <!-- التنبيهات -->
+        <div class="grid lg:grid-cols-2 gap-5">
+          <div class="card"><h3 class="font-extrabold mb-3"><i class="fa-solid fa-bell text-orange-600 ml-2"></i>تنبيهات تغيير الزيت</h3><div id="alerts" class="space-y-2"></div></div>
+          <div class="card"><h3 class="font-extrabold mb-3"><i class="fa-solid fa-id-card text-orange-600 ml-2"></i>تنبيهات الرخص</h3><div id="lic-alerts" class="space-y-2"></div></div>
+        </div>
+
+        <!-- أحدث المصروفات -->
+        <div class="card overflow-x-auto">
+          <h3 class="font-extrabold mb-3"><i class="fa-solid fa-clock-rotate-left text-orange-600 ml-2"></i>أحدث المصروفات</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap">
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>النوع</th><th>المبلغ</th><th>ملاحظات</th></tr></thead>
+            <tbody id="recent-body"></tbody>
+          </table>
+        </div>
       </div>
 
       <!-- إدارة المعدات -->
@@ -97,13 +125,17 @@ body{font-family:Cairo,sans-serif}
               <option value="مضخة">مضخة</option>
               <option value="other">أخرى</option>
             </select>
-            <input name="customType" class="inp mt-2 hidden" placeholder="أدخل نوع المعدة">
+            <input name="customType" class="inp mt-2 hidden" placeholder="أدخل نوع المعدة" list="dl-types" autocomplete="off">
           </div>
           <div><label class="lbl">رقم المعدة</label><input name="number" class="inp" required></div>
           <div><label class="lbl">رقم الشاسيه</label><input name="chassis" class="inp"></div>
+          <div><label class="lbl">سنة الصنع / الموديل</label><input name="modelYear" type="text" class="inp"></div>
           <div><label class="lbl">اسم السائق</label><input name="driver" class="inp"></div>
+          <div><label class="lbl">الموقع الحالي</label><input name="location" type="text" class="inp"></div>
           <div><label class="lbl">ساعات التشغيل الحالية</label><input name="hours" type="number" min="0" class="inp" required></div>
           <div><label class="lbl">ساعات آخر تغيير زيت</label><input name="lastOil" type="number" min="0" value="0" class="inp"></div>
+          <div><label class="lbl">فاصل تغيير الزيت (ساعات)</label><input name="oilInterval" type="number" min="1" value="250" class="inp" required></div>
+          <div><label class="lbl">تاريخ انتهاء الرخصة</label><input name="licenseExpiry" type="date" class="inp"></div>
           <div><label class="lbl">الحالة</label><select name="status" class="inp"><option value="active">يعمل</option><option value="maintenance">في الصيانة</option></select></div>
           <div class="flex items-end gap-2"><button class="btn flex-1">حفظ المعدة</button><button type="button" id="v-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
         </form>
@@ -124,18 +156,14 @@ body{font-family:Cairo,sans-serif}
               <option value="tires">إطارات</option>
               <option value="other">أخرى</option>
             </select>
-            <input name="customCategory" class="inp mt-2 hidden" placeholder="أدخل اسم المصروف" list="cat-suggestions" autocomplete="off">
-            <div data-sugg class="hidden flex flex-wrap items-center gap-1.5 mt-2"></div>
+            <input name="customCategory" class="inp mt-2 hidden" placeholder="أدخل اسم المصروف" list="dl-cats" autocomplete="off">
           </div>
-
-          <!-- بيانات الاستهلاك: تظهر عند اختيار "وقود" فقط -->
-          <div data-fuel class="hidden sm:col-span-2 grid sm:grid-cols-2 gap-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
-            <div class="sm:col-span-2 text-sm font-bold text-amber-800"><i class="fa-solid fa-gas-pump ml-2"></i>بيانات الاستهلاك (اختيارية)</div>
-            <div><label class="lbl">عدد اللترات</label><input name="liters" type="number" min="0" step="0.01" inputmode="decimal" class="inp"></div>
-            <div><label class="lbl">ساعات تشغيل المعدة الآن</label><input name="engineHours" type="number" min="0" step="any" inputmode="decimal" class="inp"></div>
-            <label class="sm:col-span-2 flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" name="syncHours" checked class="w-4 h-4 accent-amber-500">تحديث ساعات تشغيل المعدة بهذه القراءة (يُحدّث تنبيهات الزيت)</label>
+          <div data-fuel class="sm:col-span-2 hidden">
+            <div class="grid sm:grid-cols-2 gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <div><label class="lbl">عدد اللترات</label><input name="liters" type="number" min="0" step="any" class="inp"></div>
+              <div><label class="lbl">ساعات التشغيل عند التعبئة</label><input name="hoursAtFill" type="number" min="0" step="any" class="inp"></div>
+            </div>
           </div>
-
           <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
           <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
           <div class="sm:col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
@@ -153,22 +181,9 @@ body{font-family:Cairo,sans-serif}
           <div><label class="lbl">رقم المعدة</label><input id="r-q" class="inp" placeholder="ابحث برقم المعدة"></div>
           <button id="export-btn" class="btn"><i class="fa-solid fa-file-excel ml-2"></i>تصدير إلى Excel</button>
         </div>
-
-        <!-- متابعة استهلاك الوقود -->
-        <div class="card">
-          <h3 class="font-extrabold mb-1"><i class="fa-solid fa-gas-pump text-orange-600 ml-2"></i>متابعة استهلاك الوقود</h3>
-          <p class="text-xs text-slate-500 mb-3">يتبع نفس فلاتر البحث أعلاه. حساب اللتر/ساعة يحتاج تعبئتين على الأقل مسجّل بهما عدد اللترات وساعات التشغيل.</p>
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm text-right whitespace-nowrap">
-              <thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة</th><th>عدد التعبئات</th><th>إجمالي اللترات</th><th>سعر اللتر</th><th>ساعات التشغيل</th><th>لتر / ساعة</th><th>تكلفة / ساعة</th></tr></thead>
-              <tbody id="fuel-body"></tbody>
-            </table>
-          </div>
-        </div>
-
         <div class="card overflow-x-auto">
           <table class="w-full text-sm text-right whitespace-nowrap">
-            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>النوع</th><th>المبلغ</th><th>لترات</th><th>ساعات</th><th>ملاحظات</th><th>الفاتورة</th><th>إجراءات</th></tr></thead>
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>النوع</th><th>المبلغ</th><th>لترات</th><th>ملاحظات</th><th>الفاتورة</th><th>تعديل</th><th>حذف</th></tr></thead>
             <tbody id="r-body"></tbody>
           </table>
           <div id="r-total" class="mt-3 font-extrabold text-orange-600"></div>
@@ -180,16 +195,12 @@ body{font-family:Cairo,sans-serif}
 </div>
 
 <!-- ============ نافذة تعديل المصروف ============ -->
-<div id="edit-modal" class="hidden fixed inset-0 z-50 bg-black/50 overflow-y-auto p-4" role="dialog" aria-modal="true" aria-labelledby="edit-title">
-  <form id="edit-form" class="card max-w-lg mx-auto my-6 grid sm:grid-cols-2 gap-3">
+<div id="edit-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+  <form id="edit-form" class="card max-w-xl mx-auto my-6 grid sm:grid-cols-2 gap-3">
+    <h3 id="edit-title" class="sm:col-span-2 text-lg font-extrabold"><i class="fa-solid fa-pen text-orange-600 ml-2"></i>تعديل المصروف</h3>
     <input type="hidden" name="eid">
-    <div class="sm:col-span-2 flex items-center justify-between">
-      <h3 id="edit-title" class="text-lg font-extrabold">تعديل المصروف</h3>
-      <button type="button" id="edit-close" class="text-2xl text-slate-500 leading-none" aria-label="إغلاق">&times;</button>
-    </div>
-    <div class="sm:col-span-2 text-sm text-slate-600">المعدة: <b id="edit-vehicle"></b></div>
-
-    <div class="sm:col-span-2">
+    <div><label class="lbl">المعدة</label><select name="vehicleId" class="inp" required></select></div>
+    <div>
       <label class="lbl">نوع المصروف</label>
       <select name="category" class="inp">
         <option value="fuel">وقود</option>
@@ -198,20 +209,23 @@ body{font-family:Cairo,sans-serif}
         <option value="tires">إطارات</option>
         <option value="other">أخرى</option>
       </select>
-      <input name="customCategory" class="inp mt-2 hidden" placeholder="أدخل اسم المصروف" list="cat-suggestions" autocomplete="off">
-      <div data-sugg class="hidden flex flex-wrap items-center gap-1.5 mt-2"></div>
+      <input name="customCategory" class="inp mt-2 hidden" placeholder="أدخل اسم المصروف" list="dl-cats" autocomplete="off">
     </div>
-
+    <div data-fuel class="sm:col-span-2 hidden">
+      <div class="grid sm:grid-cols-2 gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
+        <div><label class="lbl">عدد اللترات</label><input name="liters" type="number" min="0" step="any" class="inp"></div>
+        <div><label class="lbl">ساعات التشغيل عند التعبئة</label><input name="hoursAtFill" type="number" min="0" step="any" class="inp"></div>
+      </div>
+    </div>
     <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
     <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
-
-    <div data-fuel class="hidden sm:col-span-2 grid sm:grid-cols-2 gap-3 rounded-xl bg-amber-50 border border-amber-200 p-3">
-      <div class="sm:col-span-2 text-sm font-bold text-amber-800"><i class="fa-solid fa-gas-pump ml-2"></i>بيانات الاستهلاك (اختيارية)</div>
-      <div><label class="lbl">عدد اللترات</label><input name="liters" type="number" min="0" step="0.01" inputmode="decimal" class="inp"></div>
-      <div><label class="lbl">ساعات تشغيل المعدة</label><input name="engineHours" type="number" min="0" step="any" inputmode="decimal" class="inp"></div>
-    </div>
-
     <div class="sm:col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+    <div class="sm:col-span-2">
+      <label class="lbl">صورة الفاتورة</label>
+      <div id="edit-invoice-cur" class="text-sm mb-2"></div>
+      <input name="invoice" type="file" accept="image/*" class="inp file:ml-3 file:border-0 file:rounded-lg file:bg-slate-800 file:text-white file:px-3 file:py-1">
+      <div id="edit-remove-wrap" class="hidden mt-2"><label class="inline-flex items-center gap-2 text-sm text-red-600"><input type="checkbox" name="removeInvoice"> حذف الفاتورة الحالية</label></div>
+    </div>
     <div class="sm:col-span-2 flex gap-2">
       <button class="btn flex-1">حفظ التعديلات</button>
       <button type="button" id="edit-cancel" class="px-5 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button>
@@ -219,8 +233,9 @@ body{font-family:Cairo,sans-serif}
   </form>
 </div>
 
-<!-- اقتراحات أسماء المصروفات المخصصة المستخدمة سابقاً -->
-<datalist id="cat-suggestions"></datalist>
+<!-- اقتراحات ذكية للأسماء المخصصة (تُملأ من app.js) -->
+<datalist id="dl-cats"></datalist>
+<datalist id="dl-types"></datalist>
 
 <script src="app.js"></script>
 </body>

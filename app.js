@@ -15,9 +15,11 @@ const firebaseConfig = {
 
 /* ---------- 2) إعدادات عامة ---------- */
 const SETTINGS = {
-  currency: "ج.م",   // العملة
-  oilInterval: 250,  // ساعات التشغيل بين كل تغيير زيت
-  oilWarnBefore: 30  // التنبيه قبل الموعد بكم ساعة
+  currency: "ج.م",     // العملة
+  oilInterval: 250,    // فاصل تغيير الزيت الافتراضي (للمعدات التي لا تحمل فاصلاً خاصاً بها)
+  oilWarnBefore: 30,   // التنبيه قبل موعد الزيت بكم ساعة
+  licenseWarnDays: 30, // التنبيه قبل انتهاء الرخصة بكم يوم
+  recentCount: 5       // عدد أحدث المصروفات في الرئيسية
 };
 
 const LIVE = !firebaseConfig.apiKey.startsWith("YOUR_");
@@ -40,10 +42,6 @@ async function initLive() {
       const s = await fs.getDocs(fs.collection(db, col));
       return s.docs.map(d => ({ id: d.id, ...d.data() }));
     },
-    async listWhere(col, field, value) {   // استعلام مباشر من Firestore (بيانات حديثة وليست من الذاكرة)
-      const s = await fs.getDocs(fs.query(fs.collection(db, col), fs.where(field, "==", value)));
-      return s.docs.map(d => ({ id: d.id, ...d.data() }));
-    },
     async save(col, data, id) {            // id موجود = تعديل، بدونه = إضافة
       if (id) { await fs.setDoc(fs.doc(db, col, id), data, { merge: true }); return id; }
       return (await fs.addDoc(fs.collection(db, col), data)).id;
@@ -64,18 +62,18 @@ async function initLive() {
 
 /* وضع تجريبي (بدون Firebase) لتجربة الواجهة */
 function initDemo() {
-  const t = new Date().toISOString().slice(0, 10);
-  const wk = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const t = Date.now();
   const store = {
     vehicles: [
-      { id: "1", type: "خلاطة", number: "خ 1234", chassis: "CH-1001", driver: "أحمد علي", hours: 1180, lastOil: 950, status: "active" },
-      { id: "2", type: "لودر", number: "ل 5678", chassis: "CH-2002", driver: "محمد حسن", hours: 600, lastOil: 400, status: "maintenance" },
-      { id: "3", type: "مضخة", number: "م 9012", chassis: "CH-3003", driver: "سعيد عمر", hours: 300, lastOil: 100, status: "active" }
+      { id: "1", type: "خلاطة", number: "خ 1234", chassis: "CH-1001", modelYear: "2019", driver: "أحمد علي", location: "محطة الخلط", hours: 1180, lastOil: 950, oilInterval: 250, licenseExpiry: dayStr(12), status: "active" },
+      { id: "2", type: "لودر", number: "ل 5678", chassis: "CH-2002", modelYear: "2016", driver: "محمد حسن", location: "الورشة", hours: 600, lastOil: 400, oilInterval: 300, licenseExpiry: dayStr(-5), status: "maintenance" },
+      { id: "3", type: "مضخة", number: "م 9012", chassis: "CH-3003", modelYear: "2021", driver: "سعيد عمر", location: "موقع المشروع", hours: 300, lastOil: 100, oilInterval: 250, licenseExpiry: dayStr(200), status: "active" }
     ],
     expenses: [
-      { id: "1", vehicleId: "1", vehicleNo: "خ 1234", category: "fuel", amount: 3500, date: t, notes: "تعبئة", invoiceUrl: "", liters: 240, engineHours: 1180 },
-      { id: "2", vehicleId: "1", vehicleNo: "خ 1234", category: "fuel", amount: 2900, date: wk, notes: "تعبئة", invoiceUrl: "", liters: 200, engineHours: 1100 },
-      { id: "3", vehicleId: "2", vehicleNo: "ل 5678", category: "غسيل المعدة", amount: 150, date: t, notes: "", invoiceUrl: "" }
+      { id: "1", vehicleId: "1", vehicleNo: "خ 1234", category: "fuel", amount: 3500, date: dayStr(-10), notes: "تعبئة", invoiceUrl: "", liters: 100, hoursAtFill: 1100, createdAt: t - 4000 },
+      { id: "2", vehicleId: "1", vehicleNo: "خ 1234", category: "fuel", amount: 4200, date: dayStr(-4), notes: "تعبئة", invoiceUrl: "", liters: 120, hoursAtFill: 1140, createdAt: t - 3000 },
+      { id: "3", vehicleId: "2", vehicleNo: "ل 5678", category: "parts", amount: 1800, date: dayStr(-3), notes: "طلمبة", invoiceUrl: "", liters: null, hoursAtFill: null, createdAt: t - 2000 },
+      { id: "4", vehicleId: "3", vehicleNo: "م 9012", category: "فحص كمبيوتر", amount: 600, date: dayStr(0), notes: "", invoiceUrl: "", liters: null, hoursAtFill: null, createdAt: t - 1000 }
     ]
   };
   let user = null, cb = () => {};
@@ -84,10 +82,9 @@ function initDemo() {
     logout: async () => { user = null; cb(null); },
     onAuth: f => { cb = f; f(user); },
     list: async c => store[c].map(x => ({ ...x })),
-    listWhere: async (c, field, value) => store[c].filter(x => x[field] === value).map(x => ({ ...x })),
     save: async (c, d, id) => {
       if (id) { Object.assign(store[c].find(x => x.id === id), d); return id; }
-      const n = String(Date.now()); store[c].push({ ...d, id: n }); return n;
+      const n = String(Date.now()) + Math.random().toString(36).slice(2, 6); store[c].push({ ...d, id: n }); return n;
     },
     upload: async f => URL.createObjectURL(f),
     remove: async (c, id) => { store[c] = store[c].filter(x => x.id !== id); }
@@ -96,98 +93,110 @@ function initDemo() {
 
 /* ---------- 4) أدوات مساعدة ---------- */
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
-const CATS = { fuel: "وقود", parts: "قطع غيار", oil: "تغيير زيت", tires: "إطارات" };
-const catName = c => CATS[c] || c || "";   // التصنيف المخصص (أخرى) يُحفظ باسمه مباشرة ويُعرض كما هو
 const OTHER = "other";                     // قيمة خيار "أخرى" في القوائم المنسدلة
+const CATS = { fuel: "وقود", parts: "قطع غيار", oil: "تغيير زيت", tires: "إطارات" };
+const isStdCat = c => Object.prototype.hasOwnProperty.call(CATS, c);
+const catName = c => isStdCat(c) ? CATS[c] : (c || ""); // التصنيف المخصص (أخرى) يُحفظ باسمه مباشرة ويُعرض كما هو
+const statusName = s => s === "active" ? "يعمل" : "في الصيانة";
 const num = n => Number(n || 0).toLocaleString("en-US");
-const dec = n => Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 });
+const fmt = n => Number(Number(n).toFixed(2)).toLocaleString("en-US");
 const money = n => `${num(n)} ${SETTINGS.currency}`;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const today = () => new Date().toISOString().slice(0, 10);
-const hasNum = v => typeof v === "number" && Number.isFinite(v);
+const toNum = v => (v === "" || v == null || !Number.isFinite(+v)) ? null : +v;
+const pad = n => String(n).padStart(2, "0");
+const dayStr = (off = 0) => {              // تاريخ اليوم (بتوقيت الجهاز) مع إزاحة بالأيام
+  const d = new Date(); d.setDate(d.getDate() + off);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+const today = () => dayStr(0);
+function daysUntil(s) {                    // عدد الأيام حتى تاريخ معين (سالب = منتهي)
+  const [y, m, d] = String(s || "").split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const n = new Date();
+  return Math.round((new Date(y, m - 1, d) - new Date(n.getFullYear(), n.getMonth(), n.getDate())) / 86400000);
+}
+const byRecent = (a, b) => (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0);
 let S, vehicles = [], expenses = [];
 
-/* توحيد الكتابة العربية للمقارنة فقط (تشكيل/تطويل/همزات/ة-ه/ى-ي) */
-const normAr = s => String(s || "").trim().replace(/\s+/g, " ")
-  .replace(/[\u064B-\u0652\u0640]/g, "").replace(/[أإآ]/g, "ا")
-  .replace(/ى/g, "ي").replace(/ة/g, "ه").toLowerCase();
+/* فاصل الزيت الخاص بكل معدة (والافتراضي للمعدات القديمة) والساعات المتبقية */
+const oilInt = v => Number(v.oilInterval) > 0 ? Number(v.oilInterval) : SETTINGS.oilInterval;
+const oilLeft = v => (v.lastOil || 0) + oilInt(v) - (v.hours || 0);
+const vNo = e => (vehicles.find(v => v.id === e.vehicleId) || {}).number || e.vehicleNo || "";
 
-/* أسماء المصروفات المخصصة المستخدمة سابقاً، الأكثر استخداماً أولاً.
-   الأسماء المتشابهة (مسافات/همزات/تشكيل) تُدمج تحت أكثر صيغة مستخدمة. */
-function customCats() {
-  const groups = new Map();
-  expenses.forEach(e => {
-    const c = String(e.category || "").trim();
-    if (!c || CATS[c] || c === OTHER) return;
-    const k = normAr(c), g = groups.get(k) || { count: 0, variants: {} };
-    g.count++; g.variants[c] = (g.variants[c] || 0) + 1;
-    groups.set(k, g);
-  });
-  return [...groups.entries()].map(([key, g]) => ({
-    key, count: g.count,
-    name: Object.entries(g.variants).sort((a, b) => b[1] - a[1])[0][0]
-  })).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ar"));
+/* حالة الرخصة */
+function licenseInfo(v) {
+  const days = daysUntil(v.licenseExpiry);
+  if (days === null) return { days, cls: "", text: "-" };
+  if (days < 0) return { days, cls: "text-red-600 font-bold", text: `منتهية منذ ${num(-days)} يوم (${v.licenseExpiry})` };
+  if (days === 0) return { days, cls: "text-red-600 font-bold", text: `تنتهي اليوم (${v.licenseExpiry})` };
+  if (days <= SETTINGS.licenseWarnDays) return { days, cls: "text-orange-600 font-bold", text: `تنتهي خلال ${num(days)} يوم (${v.licenseExpiry})` };
+  return { days, cls: "", text: v.licenseExpiry };
+}
+const licenseAlerts = () => vehicles.map(v => ({ v, days: daysUntil(v.licenseExpiry) }))
+  .filter(a => a.days !== null && a.days <= SETTINGS.licenseWarnDays).sort((a, b) => a.days - b.days);
+
+/* استهلاك الوقود لكل معدة: إجمالي اللترات + المعدل (لتر/ساعة) بين أول وآخر تعبئة */
+function fuelStats(vid) {
+  const rows = expenses.filter(e => e.vehicleId === vid && e.category === "fuel" && e.liters > 0);
+  if (!rows.length) return null;
+  const liters = rows.reduce((s, e) => s + e.liters, 0);
+  const withH = rows.filter(e => Number.isFinite(e.hoursAtFill)).sort((a, b) => a.hoursAtFill - b.hoursAtFill);
+  let rate = null;
+  if (withH.length >= 2) {
+    const span = withH[withH.length - 1].hoursAtFill - withH[0].hoursAtFill;
+    if (span > 0) rate = withH.slice(1).reduce((s, e) => s + e.liters, 0) / span; // لترات التعبئات بعد الأولى ÷ الساعات المقطوعة
+  }
+  return { liters, rate, fills: rows.length };
 }
 
-/* تحويل اختيار القائمة (+ الاسم المكتوب في "أخرى") إلى قيمة التصنيف النهائية:
-   - اسم يطابق تصنيفاً أساسياً (مثل "وقود") ⇐ يُحفظ بمفتاحه الأساسي
-   - اسم يطابق تصنيفاً مخصصاً سابقاً ⇐ يُعاد استخدام نفس الصيغة المسجّلة */
-function resolveCategory(sel, custom) {
-  if (sel !== OTHER) return sel;
-  const name = String(custom || "").trim().replace(/\s+/g, " ");
-  if (!name) return "";
-  const k = normAr(name);
-  const std = Object.keys(CATS).find(key => key === k || normAr(CATS[key]) === k);
-  if (std) return std;
-  const known = customCats().find(c => c.key === k);
-  return known ? known.name : name;
-}
-const currentCategory = form => resolveCategory(form.elements.category.value, form.elements.customCategory.value);
+/* ---------- الأسماء المخصصة والاقتراحات الذكية ---------- */
+const normAr = s => String(s || "").toLowerCase().replace(/[ً-ْـ]/g, "")   // يتجاهل التشكيل والمسافات والهمزات و"ال" التعريف
+  .replace(/[أإآ]/g, "ا").replace(/ة/g, "ه").replace(/ى/g, "ي")
+  .replace(/(^|\s)ال(?=\S)/g, "$1").replace(/\s+/g, "");
+const uniq = arr => { const seen = new Set(); return arr.filter(x => x && !seen.has(normAr(x)) && seen.add(normAr(x))); };
+const customCats = () => uniq(expenses.map(e => e.category).filter(c => c && !isStdCat(c)));
+const stdTypes = () => [...vForm.elements.type.options].map(o => o.value).filter(x => x !== OTHER);
+const customTypes = () => uniq(vehicles.map(v => v.type).filter(t => t && !stdTypes().some(s => normAr(s) === normAr(t))));
+const cleanName = s => String(s || "").trim().replace(/\s+/g, " ");
 
-/* إظهار/إخفاء حقل النص الخاص بخيار "أخرى" (ومعه شرائح الاقتراحات إن وُجدت) */
+/* يطابق الاسم المكتوب مع الموجود (بصرف النظر عن المسافات/الهمزات/التاء المربوطة) لمنع تكرار نفس الاسم بصيغ مختلفة */
+function smartName(input, known) {
+  const clean = cleanName(input), k = normAr(clean);
+  return known.find(x => normAr(x) === k) || clean;
+}
+function smartCategory(input) {
+  const clean = cleanName(input); if (!clean) return "";
+  const key = Object.keys(CATS).find(k => normAr(CATS[k]) === normAr(clean)); // كتب "وقود" داخل أخرى ⇐ نفس تصنيف الوقود
+  return key || smartName(clean, customCats());
+}
+const smartType = input => smartName(input, [...stdTypes(), ...customTypes()]);
+
+function renderSuggestions() {
+  $("#dl-cats").innerHTML = customCats().map(c => `<option value="${esc(c)}"></option>`).join("");
+  $("#dl-types").innerHTML = customTypes().map(t => `<option value="${esc(t)}"></option>`).join("");
+}
+
+/* إظهار/إخفاء حقل النص الخاص بخيار "أخرى" أسفل القائمة المنسدلة */
 function toggleOther(form, selName, inpName) {
   const on = form.elements[selName].value === OTHER, el = form.elements[inpName];
   el.classList.toggle("hidden", !on);
   el.required = on;
-  const box = el.parentElement.querySelector("[data-sugg]");
-  if (box) box.classList.toggle("hidden", !on);
   if (!on) el.value = "";
   else el.focus();
 }
-
-/* إظهار حقول اللترات والساعات عند اختيار "وقود" فقط */
+/* حقول الوقود تظهر عند اختيار "وقود" فقط، وساعات التعبئة تُملأ تلقائياً بساعات المعدة الحالية */
+function prefillHours(form) {
+  const h = form.elements.hoursAtFill;
+  if (h.dataset.touched) return;
+  const v = vehicles.find(x => x.id === form.elements.vehicleId.value);
+  h.value = v && Number.isFinite(+v.hours) ? v.hours : "";
+}
 function toggleFuel(form) {
-  const on = currentCategory(form) === "fuel";
+  const on = form.elements.category.value === "fuel";
   form.querySelector("[data-fuel]").classList.toggle("hidden", !on);
-  if (!on) { form.elements.liters.value = ""; form.elements.engineHours.value = ""; }
-  if (form === eForm) hintHours();
+  if (on) prefillHours(form);
 }
-function hintHours() {   // يعرض ساعات المعدة الحالية كتلميح داخل الحقل
-  const v = vehicles.find(x => x.id === eForm.elements.vehicleId.value);
-  eForm.elements.engineHours.placeholder = v ? `الحالي: ${num(v.hours)}` : "";
-}
-function bindCategory(form) {
-  form.elements.category.onchange = () => { toggleOther(form, "category", "customCategory"); toggleFuel(form); };
-  form.elements.customCategory.oninput = () => toggleFuel(form);
-}
-
-/* تحديث قائمة الاقتراحات (datalist + شرائح قابلة للضغط) */
-function renderSuggestions() {
-  const list = customCats();
-  $("#cat-suggestions").innerHTML = list.map(c => `<option value="${esc(c.name)}"></option>`).join("");
-  $$("[data-sugg]").forEach(box => {
-    box.innerHTML = list.length
-      ? `<span class="text-xs text-slate-500">استخدمتها سابقاً:</span>` +
-        list.slice(0, 8).map(c => `<button type="button" class="chip" data-sugg-val="${esc(c.name)}">${esc(c.name)}</button>`).join("")
-      : "";
-  });
-}
-document.addEventListener("click", ev => {
-  const b = ev.target.closest("[data-sugg-val]"); if (!b) return;
-  const f = b.closest("form"), inp = f.elements.customCategory;
-  inp.value = b.dataset.suggVal; inp.focus();
-  toggleFuel(f);
-});
+function syncCategory(form) { toggleOther(form, "category", "customCategory"); toggleFuel(form); }
 
 /* ---------- 5) التنقل ---------- */
 function menu(open) {
@@ -201,18 +210,22 @@ function show(view) {
   window.scrollTo(0, 0);
 }
 $$("[data-nav]").forEach(b => b.onclick = () => show(b.dataset.nav));
+$$("[data-go]").forEach(b => b.onclick = () => {                 // الإجراءات السريعة
+  show(b.dataset.go);
+  if (b.dataset.go === "expenses") $("#exp-vehicle").focus();
+});
 $("#menu-btn").onclick = () => menu(true);
 $("#overlay").onclick = () => menu(false);
 
 /* ---------- 6) العرض ---------- */
+const vehicleOptions = extra => `<option value="">اختر المعدة</option>` + (extra || "") +
+  vehicles.map(v => `<option value="${esc(v.id)}">${esc(v.number)} - ${esc(v.type)}</option>`).join("");
+
 async function loadData() {
   [vehicles, expenses] = await Promise.all([S.list("vehicles"), S.list("expenses")]);
-  renderDashboard(); renderVehicles(); renderReport(); renderSuggestions();
-  const sel = $("#exp-vehicle"), keep = sel.value;
-  sel.innerHTML = `<option value="">اختر المعدة</option>` +
-    vehicles.map(v => `<option value="${esc(v.id)}">${esc(v.number)} - ${esc(v.type)}</option>`).join("");
-  if (vehicles.some(v => v.id === keep)) sel.value = keep;
-  hintHours();
+  const sel = $("#exp-vehicle"), cur = sel.value;
+  sel.innerHTML = vehicleOptions(); sel.value = cur;
+  renderSuggestions(); renderDashboard(); renderVehicles(); renderReport();
 }
 
 function renderDashboard() {
@@ -220,113 +233,106 @@ function renderDashboard() {
   $("#k-exp").textContent = money(expenses.filter(e => (e.date || "").startsWith(ym)).reduce((s, e) => s + e.amount, 0));
   $("#k-active").textContent = vehicles.filter(v => v.status === "active").length;
   $("#k-maint").textContent = vehicles.filter(v => v.status === "maintenance").length;
-  const al = vehicles.map(v => ({ v, left: (v.lastOil || 0) + SETTINGS.oilInterval - v.hours }))
-    .filter(a => a.left <= SETTINGS.oilWarnBefore).sort((a, b) => a.left - b.left);
+
+  const lic = licenseAlerts();
+  $("#k-lic").textContent = lic.length;
+  $("#k-lic").classList.toggle("text-red-600", lic.length > 0);
+
+  // تنبيهات الزيت: تعتمد على فاصل كل معدة (oilInterval)
+  const al = vehicles.map(v => ({ v, left: oilLeft(v) })).filter(a => a.left <= SETTINGS.oilWarnBefore).sort((a, b) => a.left - b.left);
   $("#alerts").innerHTML = al.length ? al.map(({ v, left }) => `
     <div class="flex items-center gap-3 p-3 rounded-xl ${left <= 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}">
       <i class="fa-solid fa-oil-can"></i><b>${esc(v.number)}</b>
-      <span class="text-sm">${left <= 0 ? `تجاوزت موعد تغيير الزيت بـ ${num(-left)} ساعة` : `متبقي ${num(left)} ساعة على تغيير الزيت`}</span>
+      <span class="text-sm">${left < 0 ? `تجاوزت موعد تغيير الزيت بـ ${num(-left)} ساعة` : left === 0 ? "حان موعد تغيير الزيت الآن" : `متبقي ${num(left)} ساعة على تغيير الزيت`}</span>
     </div>`).join("") : `<p class="text-sm text-slate-500">لا توجد تنبيهات حالياً.</p>`;
+
+  // تنبيهات الرخص: أحمر = منتهية/اليوم، برتقالي = خلال المهلة
+  $("#lic-alerts").innerHTML = lic.length ? lic.map(({ v, days }) => `
+    <div class="flex items-center gap-3 p-3 rounded-xl ${days <= 0 ? "bg-red-50 text-red-700" : "bg-orange-50 text-orange-700"}">
+      <i class="fa-solid fa-id-card"></i><b>${esc(v.number)}</b>
+      <span class="text-sm">${esc(licenseInfo(v).text)}</span>
+    </div>`).join("") : `<p class="text-sm text-slate-500">لا توجد رخص منتهية أو قاربت على الانتهاء.</p>`;
+
+  // أحدث المصروفات
+  const rec = [...expenses].sort(byRecent).slice(0, SETTINGS.recentCount);
+  $("#recent-body").innerHTML = rec.map(e => `
+    <tr class="border-b last:border-0"><td class="py-2">${esc(e.date)}</td><td>${esc(vNo(e))}</td><td>${esc(catName(e.category))}</td>
+    <td>${money(e.amount)}</td><td>${esc(e.notes)}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="py-4 text-slate-500">لا توجد مصروفات بعد.</td></tr>`;
 }
 
 function renderVehicles() {
-  $("#v-list").innerHTML = vehicles.map(v => `
+  $("#v-list").innerHTML = vehicles.map(v => {
+    const lic = licenseInfo(v), left = oilLeft(v), fs = fuelStats(v.id);
+    return `
     <div class="card">
       <div class="flex justify-between items-start">
         <div><div class="text-xs text-slate-500">${esc(v.type)}</div><div class="text-lg font-extrabold">${esc(v.number)}</div></div>
-        <span class="text-xs px-2 py-1 rounded-full ${v.status === "active" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}">${v.status === "active" ? "يعمل" : "في الصيانة"}</span>
+        <span class="text-xs px-2 py-1 rounded-full ${v.status === "active" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}">${statusName(v.status)}</span>
       </div>
       <div class="mt-3 text-sm text-slate-600 space-y-1">
         <div>الشاسيه: ${esc(v.chassis || "-")}</div>
+        <div>الموديل: ${esc(v.modelYear || "-")}</div>
         <div>السائق: ${esc(v.driver || "-")}</div>
+        <div>الموقع: ${esc(v.location || "-")}</div>
         <div>ساعات التشغيل: ${num(v.hours)}</div>
+        <div>الزيت: كل ${num(oilInt(v))} ساعة · ${left <= 0 ? "مستحق التغيير" : `متبقي ${num(left)} ساعة`}</div>
+        <div>الرخصة: <span class="${lic.cls}">${esc(lic.text)}</span></div>
+        ${fs ? `<div>الوقود: ${fmt(fs.liters)} لتر${fs.rate != null ? ` · ${fmt(fs.rate)} لتر/ساعة` : ""}</div>` : ""}
       </div>
       <div class="mt-3 flex gap-4 text-sm font-bold">
         <button data-edit="${esc(v.id)}" class="text-orange-600"><i class="fa-solid fa-pen ml-1"></i>تعديل</button>
         <button data-del="${esc(v.id)}" class="text-red-600"><i class="fa-solid fa-trash ml-1"></i>حذف</button>
       </div>
-    </div>`).join("") || `<p class="text-slate-500">أضف أول معدة من النموذج أعلاه.</p>`;
+    </div>`;
+  }).join("") || `<p class="text-slate-500">أضف أول معدة من النموذج أعلاه.</p>`;
 }
 
 function filtered() {
   const f = $("#r-from").value, t = $("#r-to").value, q = $("#r-q").value.trim().toLowerCase();
-  return expenses.filter(e => (!f || e.date >= f) && (!t || e.date <= t) && (!q || (e.vehicleNo || "").toLowerCase().includes(q)))
-    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  return expenses.filter(e => (!f || e.date >= f) && (!t || e.date <= t) && (!q || vNo(e).toLowerCase().includes(q))).sort(byRecent);
 }
-
-/* إحصائيات استهلاك الوقود لكل معدة.
-   طريقة "التعبئات المتتالية": لترات كل تعبئة عدا الأولى ÷ ساعات التشغيل بين أول وآخر تعبئة،
-   لأن لترات التعبئة تغطي الساعات التي عملتها المعدة قبلها. */
-function fuelStats(rows) {
-  const by = new Map();
-  rows.filter(e => e.category === "fuel").forEach(e => {
-    const k = e.vehicleId || e.vehicleNo;
-    if (!by.has(k)) by.set(k, { no: e.vehicleNo, fills: [] });
-    by.get(k).fills.push(e);
-  });
-  const sum = (a, key) => a.reduce((s, e) => s + (+e[key] || 0), 0);
-  return [...by.values()].map(g => {
-    const wl = g.fills.filter(e => e.liters > 0);
-    const liters = sum(wl, "liters"), cost = sum(wl, "amount");
-    const wh = wl.filter(e => hasNum(e.engineHours)).sort((a, b) => a.engineHours - b.engineHours);
-    let span = null, lph = null, cph = null;
-    if (wh.length >= 2) {
-      span = wh[wh.length - 1].engineHours - wh[0].engineHours;
-      if (span > 0) {
-        const used = wh.slice(1);
-        lph = sum(used, "liters") / span;
-        cph = sum(used, "amount") / span;
-      }
-    }
-    return { no: g.no, fills: g.fills.length, liters, ppl: liters ? cost / liters : null, span, lph, cph };
-  }).sort((a, b) => String(a.no).localeCompare(String(b.no), "ar"));
-}
-
-function renderFuel(rows) {
-  const st = fuelStats(rows), dash = `<span class="text-slate-400">—</span>`;
-  $("#fuel-body").innerHTML = st.map(s => `
-    <tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(s.no)}</td><td>${num(s.fills)}</td>
-    <td>${s.liters ? dec(s.liters) : dash}</td><td>${s.ppl != null ? money(dec(s.ppl)) : dash}</td>
-    <td>${s.span != null ? dec(s.span) : dash}</td>
-    <td class="font-bold text-orange-600">${s.lph != null ? dec(s.lph) : dash}</td>
-    <td>${s.cph != null ? money(dec(s.cph)) : dash}</td></tr>`).join("")
-    || `<tr><td colspan="7" class="py-4 text-slate-500">لا توجد تعبئات وقود في هذه الفترة. سجّل اللترات وساعات التشغيل مع كل مصروف وقود.</td></tr>`;
-}
-
 function renderReport() {
   const rows = filtered();
   $("#r-body").innerHTML = rows.map(e => `
-    <tr class="border-b last:border-0"><td class="py-2">${esc(e.date)}</td><td>${esc(e.vehicleNo)}</td><td>${esc(catName(e.category))}</td>
-    <td>${money(e.amount)}</td>
-    <td>${e.liters > 0 ? dec(e.liters) : "-"}</td><td>${hasNum(e.engineHours) ? dec(e.engineHours) : "-"}</td>
-    <td>${esc(e.notes)}</td>
+    <tr class="border-b last:border-0"><td class="py-2">${esc(e.date)}</td><td>${esc(vNo(e))}</td><td>${esc(catName(e.category))}</td>
+    <td>${money(e.amount)}</td><td>${e.liters ? fmt(e.liters) : "-"}</td><td>${esc(e.notes)}</td>
     <td>${e.invoiceUrl ? `<a href="${esc(e.invoiceUrl)}" target="_blank" rel="noopener" class="text-orange-600"><i class="fa-solid fa-image"></i></a>` : "-"}</td>
-    <td>
-      <button data-edit-exp="${esc(e.id)}" class="text-orange-600 ml-3" aria-label="تعديل"><i class="fa-solid fa-pen"></i></button>
-      <button data-del-exp="${esc(e.id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button>
-    </td></tr>`).join("")
+    <td><button data-edit-exp="${esc(e.id)}" class="text-orange-600" aria-label="تعديل"><i class="fa-solid fa-pen"></i></button></td>
+    <td><button data-del-exp="${esc(e.id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button></td></tr>`).join("")
     || `<tr><td colspan="9" class="py-4 text-slate-500">لا توجد نتائج.</td></tr>`;
   $("#r-total").textContent = `الإجمالي: ${money(rows.reduce((s, e) => s + e.amount, 0))}`;
-  renderFuel(rows);
 }
 ["#r-from", "#r-to", "#r-q"].forEach(s => $(s).oninput = renderReport);
 
+/* ---------- تصدير Excel: شيت المصروفات + شيت المعدات ---------- */
+const EXP_HEAD = ["التاريخ", "رقم المعدة", "النوع", "المبلغ", "اللترات", "ساعات التشغيل عند التعبئة", "ملاحظات", "رابط الفاتورة"];
+function sheetOf(rows, header) {
+  const ws = XLSX.utils.json_to_sheet(rows, { header });
+  ws["!cols"] = header.map(h => ({ wch: Math.max(h.length, 12) + 2 }));
+  return ws;
+}
 $("#export-btn").onclick = () => {
-  const list = filtered();
-  const rows = list.map(e => ({
-    "التاريخ": e.date, "رقم المعدة": e.vehicleNo, "النوع": catName(e.category),
-    "المبلغ": e.amount, "عدد اللترات": e.liters ?? "", "ساعات التشغيل": e.engineHours ?? "",
+  const rows = filtered().map(e => ({
+    "التاريخ": e.date, "رقم المعدة": vNo(e), "النوع": catName(e.category),
+    "المبلغ": e.amount, "اللترات": e.liters ?? "", "ساعات التشغيل عند التعبئة": e.hoursAtFill ?? "",
     "ملاحظات": e.notes || "", "رابط الفاتورة": e.invoiceUrl || ""
   }));
-  if (!rows.length) return alert("لا توجد بيانات للتصدير.");
+  const vrows = vehicles.map(v => {
+    const lic = licenseInfo(v), fs = fuelStats(v.id);
+    return {
+      "النوع": v.type || "", "رقم المعدة": v.number || "", "رقم الشاسيه": v.chassis || "",
+      "سنة الصنع / الموديل": v.modelYear || "", "اسم السائق": v.driver || "", "الموقع الحالي": v.location || "",
+      "الحالة": statusName(v.status), "ساعات التشغيل الحالية": v.hours ?? 0, "ساعات آخر تغيير زيت": v.lastOil || 0,
+      "فاصل تغيير الزيت (ساعات)": oilInt(v), "الساعات المتبقية لتغيير الزيت": oilLeft(v),
+      "تاريخ انتهاء الرخصة": v.licenseExpiry || "", "حالة الرخصة": lic.days === null ? "" : lic.text,
+      "إجمالي لترات الوقود": fs ? +fs.liters.toFixed(2) : "", "استهلاك الوقود (لتر/ساعة)": fs && fs.rate != null ? +fs.rate.toFixed(2) : ""
+    };
+  });
+  if (!rows.length && !vrows.length) return alert("لا توجد بيانات للتصدير.");
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "المصروفات");
-  const st = fuelStats(list).map(s => ({
-    "رقم المعدة": s.no, "عدد التعبئات": s.fills, "إجمالي اللترات": s.liters || "",
-    "سعر اللتر": s.ppl != null ? +s.ppl.toFixed(2) : "", "ساعات التشغيل": s.span ?? "",
-    "لتر/ساعة": s.lph != null ? +s.lph.toFixed(2) : "", "تكلفة/ساعة": s.cph != null ? +s.cph.toFixed(2) : ""
-  }));
-  if (st.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(st), "كفاءة الوقود");
+  XLSX.utils.book_append_sheet(wb, sheetOf(rows, EXP_HEAD), "المصروفات");
+  if (vrows.length) XLSX.utils.book_append_sheet(wb, sheetOf(vrows, Object.keys(vrows[0])), "المعدات");
   wb.Workbook = { Views: [{ RTL: true }] };
   XLSX.writeFile(wb, `تقرير-فوزي-عبده-${today()}.xlsx`);
 };
@@ -340,15 +346,12 @@ async function guarded(e, fn) {
   b.disabled = false;
 }
 
-/* --- المعدات --- */
-const vForm = $("#vehicle-form"), eForm = $("#expense-form"), edForm = $("#edit-form");
+const vForm = $("#vehicle-form"), eForm = $("#expense-form"), mForm = $("#edit-form"), modal = $("#edit-modal");
 vForm.elements.type.onchange = () => toggleOther(vForm, "type", "customType");
-bindCategory(eForm);
-bindCategory(edForm);
-eForm.elements.vehicleId.onchange = hintHours;
 
+/* --- المعدات --- */
 function resetVehicleForm() {
-  vForm.reset(); vForm.elements.vid.value = "";
+  vForm.reset(); vForm.elements.vid.value = "";   // reset يعيد فاصل الزيت إلى 250
   toggleOther(vForm, "type", "customType");
   $("#v-cancel").classList.add("hidden");
 }
@@ -356,49 +359,42 @@ $("#v-cancel").onclick = resetVehicleForm;
 
 vForm.onsubmit = e => guarded(e, async f => {
   const id = f.vid; delete f.vid;
-  if (f.type === OTHER) f.type = (f.customType || "").trim();   // "أخرى" ⇐ نحفظ النوع المكتوب
+  if (f.type === OTHER) f.type = smartType(f.customType);   // "أخرى" ⇐ نحفظ النوع المكتوب
   delete f.customType;
   if (!f.type) return alert("أدخل نوع المعدة.");
   f.hours = +f.hours; f.lastOil = +f.lastOil || 0;
+  f.oilInterval = +f.oilInterval > 0 ? +f.oilInterval : SETTINGS.oilInterval;
+  f.modelYear = cleanName(f.modelYear); f.location = cleanName(f.location);
+  f.licenseExpiry = f.licenseExpiry || "";
   await S.save("vehicles", f, id || undefined);
   resetVehicleForm(); await loadData();
 });
 
 async function removeItem(col, id, msg) {
-  if (!confirm(msg)) return;
-  try { await S.remove(col, id); await loadData(); }
-  catch (err) { console.error(err); alert("تعذر الحذف. حاول مرة أخرى."); }
+  if (!confirm(msg)) return false;
+  try { await S.remove(col, id); await loadData(); return true; }
+  catch (err) { console.error(err); alert("تعذر الحذف. حاول مرة أخرى."); return false; }
 }
 
-/* حذف معدة: يُمنع إذا كانت لها مصروفات مسجلة للحفاظ على سلامة البيانات.
-   الفحص يتم بالاستعلام المباشر من Firestore وليس من الذاكرة المحلية. */
-async function deleteVehicle(id) {
-  const v = vehicles.find(x => x.id === id); if (!v) return;
+/* لا يمكن حذف معدة لها مصروفات مسجّلة (يُفحص من قاعدة البيانات مباشرة) */
+async function deleteVehicle(v) {
   let linked;
-  try { linked = await S.listWhere("expenses", "vehicleId", v.id); }
-  catch (err) {
-    console.error(err);
-    return alert("تعذر التحقق من مصروفات المعدة، لذلك لم يتم الحذف. حاول مرة أخرى.");
-  }
-  if (linked.length) {
-    return alert(`لا يمكن حذف المعدة ${v.number} لأن لها مصروفات مسجّلة (العدد: ${linked.length}).\n` +
-      `حذفها سيُفقد سجل مصروفاتها ويخلّ بالتقارير. إذا كانت المعدة خرجت من الخدمة غيّر حالتها بدلاً من حذفها، ` +
-      `أو احذف مصروفاتها أولاً من صفحة البحث والتقارير إن كنت متأكداً.`);
-  }
-  if (vForm.elements.vid.value === v.id) resetVehicleForm();
-  await removeItem("vehicles", v.id, `هل تريد حذف المعدة ${v.number}؟`);
+  try { linked = (await S.list("expenses")).filter(e => e.vehicleId === v.id); }
+  catch (err) { console.error(err); return alert("تعذر التحقق من مصروفات المعدة. حاول مرة أخرى."); }
+  if (linked.length) return alert(`لا يمكن حذف المعدة ${v.number} لأن لها ${linked.length} مصروف مسجّل. احذف مصروفاتها أولاً.`);
+  if (await removeItem("vehicles", v.id, `هل تريد حذف المعدة ${v.number}؟`) && vForm.elements.vid.value === v.id) resetVehicleForm();
 }
 
 $("#v-list").onclick = ev => {
   const d = ev.target.closest("[data-del]");
-  if (d) return deleteVehicle(d.dataset.del);
+  if (d) { const v = vehicles.find(x => x.id === d.dataset.del); return v && deleteVehicle(v); }
   const b = ev.target.closest("[data-edit]"); if (!b) return;
   const v = vehicles.find(x => x.id === b.dataset.edit), f = vForm;
   f.elements.vid.value = v.id;
-  ["number", "chassis", "driver", "hours", "lastOil", "status"].forEach(k => f.elements[k].value = v[k] ?? "");
+  ["number", "chassis", "driver", "hours", "lastOil", "status", "modelYear", "location", "licenseExpiry"].forEach(k => f.elements[k].value = v[k] ?? "");
+  f.elements.oilInterval.value = oilInt(v);
   // نوع غير موجود في القائمة = نوع مخصص ⇐ نعرضه في خانة "أخرى"
-  const std = [...f.elements.type.options].map(o => o.value).filter(x => x !== OTHER);
-  const isStd = std.includes(v.type);
+  const isStd = stdTypes().includes(v.type);
   f.elements.type.value = isStd ? v.type : OTHER;
   toggleOther(f, "type", "customType");
   if (!isStd) f.elements.customType.value = v.type || "";
@@ -406,91 +402,99 @@ $("#v-list").onclick = ev => {
   f.scrollIntoView({ behavior: "smooth" });
 };
 
-/* --- تعديل المصروف (نافذة منبثقة) --- */
-const modal = $("#edit-modal");
-function openEdit(e) {
-  const f = edForm;
-  f.elements.eid.value = e.id;
-  $("#edit-vehicle").textContent = e.vehicleNo || "";
-  const isStd = !!CATS[e.category];
-  f.elements.category.value = isStd ? e.category : OTHER;
-  toggleOther(f, "category", "customCategory");
-  if (!isStd) f.elements.customCategory.value = e.category || "";
-  toggleFuel(f);
-  f.elements.amount.value = e.amount ?? "";
-  f.elements.date.value = e.date || "";
-  f.elements.notes.value = e.notes || "";
-  f.elements.liters.value = e.liters ?? "";
-  f.elements.engineHours.value = e.engineHours ?? "";
-  modal.classList.remove("hidden");
-  document.body.classList.add("overflow-hidden");
-  f.elements.amount.focus();
-}
-function closeEdit() {
-  modal.classList.add("hidden");
-  document.body.classList.remove("overflow-hidden");
-  edForm.reset(); toggleOther(edForm, "category", "customCategory"); toggleFuel(edForm);
-}
-$("#edit-close").onclick = $("#edit-cancel").onclick = closeEdit;
-modal.onclick = ev => { if (ev.target === modal) closeEdit(); };
-document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !modal.classList.contains("hidden")) closeEdit(); });
-
-edForm.onsubmit = e => guarded(e, async f => {
-  const old = expenses.find(x => x.id === f.eid);
-  if (!old) return alert("تعذر العثور على هذا المصروف. حدّث الصفحة وحاول مرة أخرى.");
-  const category = resolveCategory(f.category, f.customCategory);
-  if (!category) return alert("أدخل اسم المصروف.");
-  const isFuel = category === "fuel";
-  await S.save("expenses", {
-    category, amount: +f.amount, date: f.date, notes: (f.notes || "").trim(),
-    liters: isFuel && f.liters !== "" ? +f.liters : null,
-    engineHours: isFuel && f.engineHours !== "" ? +f.engineHours : null
-  }, old.id);
-  closeEdit(); await loadData();
-  alert("تم تعديل المصروف.");
-});
-
-$("#r-body").onclick = ev => {
-  const ed = ev.target.closest("[data-edit-exp]");
-  if (ed) { const e = expenses.find(x => x.id === ed.dataset.editExp); if (e) openEdit(e); return; }
-  const d = ev.target.closest("[data-del-exp]"); if (!d) return;
-  const e = expenses.find(x => x.id === d.dataset.delExp);
-  removeItem("expenses", e.id, `هل تريد حذف مصروف ${catName(e.category)} بقيمة ${money(e.amount)}؟`);
-};
-
 /* --- المصروفات --- */
+const fuelFields = (category, f) => category === "fuel"
+  ? { liters: toNum(f.liters), hoursAtFill: toNum(f.hoursAtFill) }
+  : { liters: null, hoursAtFill: null };
+const resolveCategory = f => f.category === OTHER ? smartCategory(f.customCategory) : f.category; // "أخرى" ⇐ الاسم المكتوب
+
+eForm.elements.category.onchange = () => syncCategory(eForm);
+eForm.elements.vehicleId.onchange = () => prefillHours(eForm);
+eForm.elements.hoursAtFill.oninput = e => { e.target.dataset.touched = "1"; };
+
 function resetExpenseForm() {
   eForm.reset(); eForm.elements.date.value = today();
-  toggleOther(eForm, "category", "customCategory");
-  toggleFuel(eForm);
+  delete eForm.elements.hoursAtFill.dataset.touched;
+  syncCategory(eForm);
 }
 
 eForm.onsubmit = e => guarded(e, async f => {
   const v = vehicles.find(x => x.id === f.vehicleId);
   if (!v) return alert("اختر المعدة أولاً.");
-  const category = resolveCategory(f.category, f.customCategory);   // "أخرى" ⇐ نحفظ الاسم المكتوب (موحّداً مع السابق)
+  const category = resolveCategory(f);
   if (!category) return alert("أدخل اسم المصروف.");
-
-  const isFuel = category === "fuel";
-  const liters = isFuel && f.liters !== "" ? +f.liters : null;
-  const engineHours = isFuel && f.engineHours !== "" ? +f.engineHours : null;
-  if (engineHours !== null && engineHours < v.hours &&
-      !confirm(`ساعات التشغيل المُدخلة (${num(engineHours)}) أقل من الساعات الحالية للمعدة (${num(v.hours)}). هل تريد المتابعة؟`)) return;
-
   const file = f.invoice;
   const invoiceUrl = file && file.size ? await S.upload(file) : "";
-  const data = { vehicleId: v.id, vehicleNo: v.number, category, amount: +f.amount, date: f.date, notes: f.notes, invoiceUrl };
-  if (liters !== null) data.liters = liters;
-  if (engineHours !== null) data.engineHours = engineHours;
-  await S.save("expenses", data);
-
-  if (category === "oil") await S.save("vehicles", { lastOil: v.hours }, v.id);   // يصفّر عداد تنبيه الزيت
-  else if (engineHours !== null && f.syncHours && engineHours > v.hours)          // يحدّث ساعات المعدة بآخر قراءة
-    await S.save("vehicles", { hours: engineHours }, v.id);
-
+  await S.save("expenses", { vehicleId: v.id, vehicleNo: v.number, category, amount: +f.amount, date: f.date, notes: f.notes, invoiceUrl, createdAt: Date.now(), ...fuelFields(category, f) });
+  if (category === "oil") await S.save("vehicles", { lastOil: v.hours }, v.id); // يصفّر عداد تنبيه الزيت
   resetExpenseForm(); await loadData();
   alert("تم حفظ المصروف.");
 });
+
+/* --- نافذة تعديل المصروف --- */
+mForm.elements.category.onchange = () => syncCategory(mForm);
+mForm.elements.vehicleId.onchange = () => prefillHours(mForm);
+mForm.elements.hoursAtFill.oninput = e => { e.target.dataset.touched = "1"; };
+
+function closeEdit() {
+  modal.classList.add("hidden");
+  document.body.classList.remove("overflow-hidden");
+  mForm.reset(); mForm.elements.eid.value = "";
+  delete mForm.elements.hoursAtFill.dataset.touched;
+}
+$("#edit-cancel").onclick = closeEdit;
+modal.onmousedown = ev => { if (ev.target === modal) closeEdit(); };
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !modal.classList.contains("hidden")) closeEdit(); });
+
+function openEdit(e) {
+  const f = mForm;
+  f.reset(); delete f.elements.hoursAtFill.dataset.touched;
+  f.elements.eid.value = e.id;
+  const gone = !vehicles.some(v => v.id === e.vehicleId);        // معدة محذوفة سابقاً: نُبقي اختيارها كما هو
+  f.elements.vehicleId.innerHTML = vehicleOptions(gone ? `<option value="${esc(e.vehicleId)}">${esc(e.vehicleNo)} (معدة محذوفة)</option>` : "");
+  f.elements.vehicleId.value = e.vehicleId || "";
+  const std = isStdCat(e.category);
+  f.elements.category.value = std ? e.category : OTHER;
+  if (Number.isFinite(e.hoursAtFill)) f.elements.hoursAtFill.dataset.touched = "1";
+  syncCategory(f);
+  if (!std) f.elements.customCategory.value = e.category || "";
+  f.elements.amount.value = e.amount ?? "";
+  f.elements.date.value = e.date || "";
+  f.elements.notes.value = e.notes || "";
+  f.elements.liters.value = e.liters ?? "";
+  f.elements.hoursAtFill.value = e.hoursAtFill ?? f.elements.hoursAtFill.value;
+  $("#edit-invoice-cur").innerHTML = e.invoiceUrl
+    ? `<a href="${esc(e.invoiceUrl)}" target="_blank" rel="noopener" class="text-orange-600"><i class="fa-solid fa-image ml-1"></i>عرض الفاتورة الحالية</a>`
+    : `<span class="text-slate-500">لا توجد فاتورة مرفوعة.</span>`;
+  $("#edit-remove-wrap").classList.toggle("hidden", !e.invoiceUrl);
+  modal.classList.remove("hidden");
+  document.body.classList.add("overflow-hidden");
+}
+
+mForm.onsubmit = e => guarded(e, async f => {
+  const old = expenses.find(x => x.id === f.eid);
+  if (!old) return alert("المصروف غير موجود.");
+  const v = vehicles.find(x => x.id === f.vehicleId);
+  let vehicleNo;
+  if (v) vehicleNo = v.number;
+  else if (f.vehicleId && f.vehicleId === old.vehicleId) vehicleNo = old.vehicleNo;
+  else return alert("اختر المعدة أولاً.");
+  const category = resolveCategory(f);
+  if (!category) return alert("أدخل اسم المصروف.");
+  let invoiceUrl = old.invoiceUrl || "";
+  if (f.removeInvoice) invoiceUrl = "";
+  if (f.invoice && f.invoice.size) invoiceUrl = await S.upload(f.invoice);
+  await S.save("expenses", { vehicleId: f.vehicleId, vehicleNo, category, amount: +f.amount, date: f.date, notes: f.notes, invoiceUrl, ...fuelFields(category, f) }, old.id);
+  closeEdit(); await loadData();
+});
+
+$("#r-body").onclick = ev => {
+  const ed = ev.target.closest("[data-edit-exp]");
+  if (ed) { const e = expenses.find(x => x.id === ed.dataset.editExp); return e && openEdit(e); }
+  const d = ev.target.closest("[data-del-exp]"); if (!d) return;
+  const e = expenses.find(x => x.id === d.dataset.delExp);
+  if (e) removeItem("expenses", e.id, `هل تريد حذف مصروف ${catName(e.category)} بقيمة ${money(e.amount)}؟`);
+};
 
 /* ---------- 8) تسجيل الدخول والتشغيل ---------- */
 const AUTH_MSG = {
