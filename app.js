@@ -2,6 +2,21 @@
    شركة فوزي عبده – إدارة الأسطول والصيانة | app.js
    ===================================================== */
 
+/* ---------- 0) حماية الكاش ----------
+   لو المتصفح حمّل index.html قديماً (من الكاش) مع app.js جديد، يتعطل كل شيء بصمت.
+   نكتشف ذلك ونعيد تحميل الصفحة مرة واحدة، وإن استمرت المشكلة نعرض رسالة واضحة. */
+if (!document.querySelector("#edit-modal")) {
+  let again = false;
+  try { again = !!sessionStorage.getItem("fa-reload"); sessionStorage.setItem("fa-reload", "1"); } catch (e) { again = true; }
+  if (!again) location.reload();
+  else {
+    const p = document.querySelector("#login-error");
+    if (p) { p.textContent = "نسخة الصفحة قديمة في ذاكرة المتصفح. امسح بيانات الموقع أو افتحه في نافذة خاصة ثم حدّث الصفحة."; p.classList.remove("hidden"); }
+  }
+  throw new Error("index.html قديم (كاش): حدّث الصفحة");
+}
+try { sessionStorage.removeItem("fa-reload"); } catch (e) {}
+
 /* ---------- 1) مفاتيح Firebase: استبدل القيم أدناه فقط ---------- */
 const firebaseConfig = {
   apiKey: "AIzaSyAiFhd_0xUrkDLv1v3dH_27FMUjVdx932g",
@@ -506,7 +521,7 @@ const AUTH_MSG = {
   "auth/too-many-requests": "محاولات كثيرة. انتظر قليلاً ثم أعد المحاولة.",
   "auth/network-request-failed": "مشكلة في الاتصال بالإنترنت.",
   "auth/operation-not-allowed": "تسجيل الدخول بالبريد وكلمة المرور غير مفعّل في Firebase.",
-  "auth/unauthorized-domain": "هذا الدومين غير مضاف في Authorized domains داخل Firebase.",
+  "auth/unauthorized-domain": `الدومين (${location.hostname || "هذا الموقع"}) غير مضاف في Firebase: Authentication ← Settings ← Authorized domains ← Add domain.`,
   "auth/invalid-api-key": "مفتاح Firebase (apiKey) غير صحيح.",
   "auth/api-key-not-valid.-please-pass-a-valid-api-key.": "مفتاح Firebase (apiKey) غير صحيح."
 };
