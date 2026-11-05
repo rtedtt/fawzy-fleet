@@ -5,7 +5,7 @@
 /* ---------- 0) حماية الكاش ----------
    لو المتصفح حمّل index.html قديماً (من الكاش) مع app.js جديد، يتعطل كل شيء بصمت.
    نكتشف ذلك ونعيد تحميل الصفحة مرة واحدة، وإن استمرت المشكلة نعرض رسالة واضحة. */
-if (!document.querySelector("#edit-modal")) {
+if (!document.querySelector("#view-ops")) {
   let again = false;
   try { again = !!sessionStorage.getItem("fa-reload"); sessionStorage.setItem("fa-reload", "1"); } catch (e) { again = true; }
   if (!again) location.reload();
@@ -34,7 +34,8 @@ const SETTINGS = {
   oilInterval: 250,    // فاصل تغيير الزيت الافتراضي (للمعدات التي لا تحمل فاصلاً خاصاً بها)
   oilWarnBefore: 30,   // التنبيه قبل موعد الزيت بكم ساعة
   licenseWarnDays: 30, // التنبيه قبل انتهاء الرخصة بكم يوم
-  recentCount: 5       // عدد أحدث المصروفات في الرئيسية
+  recentCount: 5,      // عدد أحدث المصروفات في الرئيسية
+  lowStock: 5          // تنبيه المخزن عندما تقل كمية الصنف عن هذا الرقم
 };
 
 const LIVE = !firebaseConfig.apiKey.startsWith("YOUR_");
@@ -89,6 +90,22 @@ function initDemo() {
       { id: "2", vehicleId: "1", vehicleNo: "خ 1234", category: "fuel", amount: 4200, date: dayStr(-4), notes: "تعبئة", invoiceUrl: "", liters: 120, hoursAtFill: 1140, createdAt: t - 3000 },
       { id: "3", vehicleId: "2", vehicleNo: "ل 5678", category: "parts", amount: 1800, date: dayStr(-3), notes: "طلمبة", invoiceUrl: "", liters: null, hoursAtFill: null, createdAt: t - 2000 },
       { id: "4", vehicleId: "3", vehicleNo: "م 9012", category: "فحص كمبيوتر", amount: 600, date: dayStr(0), notes: "", invoiceUrl: "", liters: null, hoursAtFill: null, createdAt: t - 1000 }
+    ],
+    advances: [
+      { id: "a1", driver: "أحمد علي", amount: 3000, date: dayStr(-6), notes: "رحلة أسوان", status: "open", closedAt: null, createdAt: t - 6000,
+        items: [{ id: "i1", type: "كارتة", amount: 450, date: dayStr(-5), notes: "" }, { id: "i2", type: "نثريات", amount: 300, date: dayStr(-4), notes: "مياه" }] },
+      { id: "a2", driver: "سعيد عمر", amount: 1500, date: dayStr(-20), notes: "", status: "closed", closedAt: t - 90000, closedDate: dayStr(-15), spent: 1200, balance: 300, createdAt: t - 7000,
+        items: [{ id: "i3", type: "إعاشة", amount: 1200, date: dayStr(-18), notes: "" }] }
+    ],
+    inventory: [
+      { id: "s1", name: "فلتر زيت لودر", category: "فلاتر", unit: "قطعة", qty: 3, createdAt: t - 8000,
+        log: [{ d: dayStr(-10), t: "init", q: 8, bal: 8, note: "رصيد افتتاحي" }, { d: dayStr(-2), t: "out", q: 5, bal: 3, note: "صيانة ل 5678" }] },
+      { id: "s2", name: "سير مروحة", category: "سيور", unit: "قطعة", qty: 12, log: [], createdAt: t - 7500 },
+      { id: "s3", name: "زيت محرك 15W40", category: "براميل زيت", unit: "برميل", qty: 6, log: [], createdAt: t - 7000 }
+    ],
+    operations: [
+      { id: "o1", vehicleId: "1", vehicleNo: "خ 1234", vehicleType: "خلاطة", project: "مشروع الطريق الإقليمي", date: dayStr(-1), amount: 12, unit: "trips", notes: "", createdAt: t - 500 },
+      { id: "o2", vehicleId: "3", vehicleNo: "م 9012", vehicleType: "مضخة", project: "مشروع الطريق الإقليمي", date: dayStr(0), amount: 45, unit: "m3", notes: "صب أساسات", createdAt: t - 400 }
     ]
   };
   let user = null, cb = () => {};
@@ -238,14 +255,28 @@ const vehicleOptions = extra => `<option value="">اختر المعدة</option>
 
 async function loadData() {
   [vehicles, expenses] = await Promise.all([S.list("vehicles"), S.list("expenses")]);
+  // المجموعات الجديدة: فشل قراءتها (مثلاً قواعد Firestore) لا يعطّل بقية النظام
+  [advances, inventory, operations] = await Promise.all(["advances", "inventory", "operations"].map(listSafe));
   const sel = $("#exp-vehicle"), cur = sel.value;
   sel.innerHTML = vehicleOptions(); sel.value = cur;
-  renderSuggestions(); renderDashboard(); renderVehicles(); renderReport();
+  refreshModuleSelects();
+  // كل دالة عرض معزولة: خطأ في واحدة لا يمنع الباقي
+  [renderSuggestions, renderModSuggestions, renderDashboard, renderVehicles, renderReport,
+   renderAdvances, renderInventory, renderOps, renderModWarn].forEach(fn => {
+    try { fn(); } catch (err) { console.error(fn.name, err); }
+  });
 }
+
+const CAT_COLORS = { fuel: "#f59e0b", parts: "#3b82f6", oil: "#10b981", tires: "#64748b", other: "#ef4444" };
+const CAT_LABELS = { ...CATS, other: "أخرى" };
+const NOTIF_TYPES = { oil: "الزيت", license: "الرخص", stock: "المخزون" };
+let expChart = null, notifFilter = "all";
 
 function renderDashboard() {
   const ym = today().slice(0, 7);
-  $("#k-exp").textContent = money(expenses.filter(e => (e.date || "").startsWith(ym)).reduce((s, e) => s + e.amount, 0));
+  const monthExp = expenses.filter(e => (e.date || "").startsWith(ym));
+  $("#dash-month").textContent = `بيانات شهر ${ym}`;
+  $("#k-exp").textContent = money(monthExp.reduce((s, e) => s + e.amount, 0));
   $("#k-active").textContent = vehicles.filter(v => v.status === "active").length;
   $("#k-maint").textContent = vehicles.filter(v => v.status === "maintenance").length;
 
@@ -253,20 +284,23 @@ function renderDashboard() {
   $("#k-lic").textContent = lic.length;
   $("#k-lic").classList.toggle("text-red-600", lic.length > 0);
 
-  // تنبيهات الزيت: تعتمد على فاصل كل معدة (oilInterval)
-  const al = vehicles.map(v => ({ v, left: oilLeft(v) })).filter(a => a.left <= SETTINGS.oilWarnBefore).sort((a, b) => a.left - b.left);
-  $("#alerts").innerHTML = al.length ? al.map(({ v, left }) => `
-    <div class="flex items-center gap-3 p-3 rounded-xl ${left <= 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}">
-      <i class="fa-solid fa-oil-can"></i><b>${esc(v.number)}</b>
-      <span class="text-sm">${left < 0 ? `تجاوزت موعد تغيير الزيت بـ ${num(-left)} ساعة` : left === 0 ? "حان موعد تغيير الزيت الآن" : `متبقي ${num(left)} ساعة على تغيير الزيت`}</span>
-    </div>`).join("") : `<p class="text-sm text-slate-500">لا توجد تنبيهات حالياً.</p>`;
+  // إجمالي العهد المفتوحة (مبالغ العهد التي لم تُصفَّ بعد)
+  const openAdv = advances.filter(a => a.status === "open");
+  const given = openAdv.reduce((s, a) => s + (+a.amount || 0), 0), spentOpen = openAdv.reduce((s, a) => s + advSpent(a), 0);
+  $("#k-adv").textContent = money(given);
+  $("#k-adv-sub").textContent = openAdv.length ? `${openAdv.length} عهدة · المصروف ${money(spentOpen)} · المتبقي ${money(given - spentOpen)}` : "لا توجد عهد مفتوحة";
+  const low = lowStockItems();
+  $("#k-stock").textContent = low.length;
+  $("#k-stock").classList.toggle("text-red-600", low.length > 0);
 
-  // تنبيهات الرخص: أحمر = منتهية/اليوم، برتقالي = خلال المهلة
-  $("#lic-alerts").innerHTML = lic.length ? lic.map(({ v, days }) => `
-    <div class="flex items-center gap-3 p-3 rounded-xl ${days <= 0 ? "bg-red-50 text-red-700" : "bg-orange-50 text-orange-700"}">
-      <i class="fa-solid fa-id-card"></i><b>${esc(v.number)}</b>
-      <span class="text-sm">${esc(licenseInfo(v).text)}</span>
-    </div>`).join("") : `<p class="text-sm text-slate-500">لا توجد رخص منتهية أو قاربت على الانتهاء.</p>`;
+  // رسم توزيع مصروفات الشهر
+  const totals = {};
+  monthExp.forEach(e => { const k = isStdCat(e.category) ? e.category : "other"; totals[k] = (totals[k] || 0) + e.amount; });
+  renderExpenseChart(["fuel", "parts", "oil", "tires", "other"].filter(k => totals[k] > 0)
+    .map(k => ({ key: k, label: CAT_LABELS[k], value: totals[k], color: CAT_COLORS[k] })));
+
+  renderTopVehicles(monthExp);
+  renderNotifs();
 
   // أحدث المصروفات
   const rec = [...expenses].sort(byRecent).slice(0, SETTINGS.recentCount);
@@ -274,6 +308,75 @@ function renderDashboard() {
     <tr class="border-b last:border-0"><td class="py-2">${esc(e.date)}</td><td>${esc(vNo(e))}</td><td>${esc(catName(e.category))}</td>
     <td>${money(e.amount)}</td><td>${esc(e.notes)}</td></tr>`).join("")
     || `<tr><td colspan="5" class="py-4 text-slate-500">لا توجد مصروفات بعد.</td></tr>`;
+}
+
+function renderExpenseChart(groups) {
+  const total = groups.reduce((s, g) => s + g.value, 0);
+  $("#chart-wrap").classList.toggle("hidden", total <= 0);
+  $("#chart-empty").classList.toggle("hidden", total > 0);
+  $("#exp-legend").innerHTML = groups.map(g => `
+    <li class="flex items-center gap-2 text-sm"><span class="w-3 h-3 rounded-full shrink-0" style="background:${g.color}"></span>
+    <span class="flex-1">${esc(g.label)}</span><b>${money(g.value)}</b><span class="text-xs text-slate-500 w-10 text-left">${Math.round(g.value / total * 100)}%</span></li>`).join("");
+  if (typeof Chart === "undefined") return;                       // تعذر تحميل Chart.js: تبقى القائمة النصية
+  if (total <= 0) { if (expChart) { expChart.destroy(); expChart = null; } return; }
+  const data = { labels: groups.map(g => g.label), datasets: [{ data: groups.map(g => g.value), backgroundColor: groups.map(g => g.color), borderColor: "#fff", borderWidth: 2 }] };
+  if (expChart) { expChart.data = data; expChart.update(); return; }
+  Chart.defaults.font.family = "Cairo, sans-serif";
+  expChart = new Chart($("#exp-chart"), {
+    type: "doughnut", data,
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "62%",
+      plugins: { legend: { display: false }, tooltip: { rtl: true, textDirection: "rtl", callbacks: { label: c => ` ${c.label}: ${money(c.parsed)}` } } }
+    }
+  });
+}
+
+function renderTopVehicles(monthExp) {
+  const by = {};
+  monthExp.forEach(e => { const k = e.vehicleId || e.vehicleNo || "?"; (by[k] ||= { e, total: 0 }).total += e.amount; });
+  const top = Object.values(by).sort((a, b) => b.total - a.total).slice(0, 3);
+  const max = top.length ? top[0].total : 0, rank = ["bg-amber-500 text-slate-900", "bg-slate-300 text-slate-800", "bg-orange-300 text-slate-900"];
+  $("#top-vehicles").innerHTML = top.length ? top.map((t, i) => {
+    const v = vehicles.find(x => x.id === t.e.vehicleId);
+    return `<div>
+      <div class="flex items-center gap-3 mb-1">
+        <span class="w-7 h-7 rounded-full grid place-items-center text-sm font-black ${rank[i]}">${i + 1}</span>
+        <div class="flex-1"><b>${esc(vNo(t.e))}</b><span class="text-xs text-slate-500 mr-2">${esc(v ? v.type : "")}</span></div>
+        <b>${money(t.total)}</b>
+      </div>
+      <div class="h-2 rounded-full bg-slate-100"><div class="h-2 rounded-full bg-amber-500" style="width:${max ? Math.round(t.total / max * 100) : 0}%"></div></div>
+    </div>`;
+  }).join("") : `<p class="text-sm text-slate-500">لا توجد مصروفات هذا الشهر.</p>`;
+}
+
+/* مركز الإشعارات الموحد: الزيت + الرخص + المخزون (الأحمر أولاً) */
+function buildNotifs() {
+  const out = [];
+  vehicles.map(v => ({ v, left: oilLeft(v) })).filter(a => a.left <= SETTINGS.oilWarnBefore).sort((a, b) => a.left - b.left)
+    .forEach(({ v, left }) => out.push({
+      type: "oil", sev: left <= 0 ? 2 : 1, icon: "fa-oil-can", title: v.number,
+      text: left < 0 ? `تجاوزت موعد تغيير الزيت بـ ${num(-left)} ساعة` : left === 0 ? "حان موعد تغيير الزيت الآن" : `متبقي ${num(left)} ساعة على تغيير الزيت`
+    }));
+  licenseAlerts().forEach(({ v, days }) => out.push({ type: "license", sev: days <= 0 ? 2 : 1, icon: "fa-id-card", title: v.number, text: "الرخصة: " + licenseInfo(v).text }));
+  lowStockItems().forEach(i => {
+    const q = Number(i.qty) || 0;
+    out.push({ type: "stock", sev: q <= 0 ? 2 : 1, icon: "fa-boxes-stacked", title: i.name, text: q <= 0 ? "نفد من المخزن" : `كمية منخفضة: ${fmt(q)} ${i.unit || ""} فقط` });
+  });
+  return out.sort((a, b) => b.sev - a.sev);
+}
+function renderNotifs() {
+  const all = buildNotifs();
+  $("#notif-tabs").innerHTML = [["all", "الكل"], ...Object.entries(NOTIF_TYPES)].map(([k, l]) => {
+    const c = k === "all" ? all.length : all.filter(n => n.type === k).length;
+    return `<button type="button" data-notif="${k}" class="px-3 py-1 rounded-full font-bold ${notifFilter === k ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-700"}">${l} <span class="opacity-70">${c}</span></button>`;
+  }).join("");
+  const badge = $("#notif-count"); badge.textContent = all.length; badge.classList.toggle("hidden", !all.length);
+  const rows = all.filter(n => notifFilter === "all" || n.type === notifFilter);
+  $("#notif-list").innerHTML = rows.length ? rows.map(n => `
+    <div class="flex items-center gap-3 p-3 rounded-xl ${n.sev === 2 ? "bg-red-50 text-red-700" : "bg-orange-50 text-orange-700"}">
+      <i class="fa-solid ${n.icon}"></i><b>${esc(n.title)}</b><span class="text-sm flex-1">${esc(n.text)}</span>
+      <span class="text-[11px] px-2 py-0.5 rounded-full bg-white/70 border border-current">${NOTIF_TYPES[n.type]}</span>
+    </div>`).join("") : `<p class="text-sm text-slate-500">لا توجد إشعارات حالياً. كل شيء على ما يرام.</p>`;
 }
 
 function renderVehicles() {
@@ -511,6 +614,358 @@ $("#r-body").onclick = ev => {
   if (e) removeItem("expenses", e.id, `هل تريد حذف مصروف ${catName(e.category)} بقيمة ${money(e.amount)}؟`);
 };
 
+/* =====================================================
+   وحدات ERP الجديدة: العهد • مخزن قطع الغيار • التشغيل والمشاريع
+   مستقلة تماماً عن المعدات والمصروفات والوقود والتصدير
+   ===================================================== */
+let advances = [], inventory = [], operations = [];
+const modErr = {};                                    // أخطاء قراءة المجموعات الجديدة (غالباً قواعد Firestore)
+async function listSafe(col) {
+  try { modErr[col] = ""; return await S.list(col); }
+  catch (err) { console.error(col, err); modErr[col] = err && err.code === "permission-denied" ? "perm" : "other"; return []; }
+}
+const MOD_WARN = { advances: "#adv-warn", inventory: "#inv-warn", operations: "#ops-warn" };
+function renderModWarn() {
+  Object.entries(MOD_WARN).forEach(([col, sel]) => {
+    const el = $(sel), e = modErr[col];
+    el.classList.toggle("hidden", !e);
+    el.textContent = e === "perm"
+      ? `لا توجد صلاحية لقراءة مجموعة «${col}» في Firestore. أضف لها قواعد الصلاحيات من Firebase Console ← Firestore ← Rules ثم حدّث الصفحة.`
+      : e ? `تعذر تحميل بيانات هذه الوحدة (${col}). تأكد من الاتصال ثم حدّث الصفحة.` : "";
+  });
+}
+function dbErr(err) {
+  console.error(err);
+  alert(err && err.code === "permission-denied"
+    ? "لا توجد صلاحية للكتابة في Firestore لهذه الوحدة. أضف قواعد الصلاحيات للمجموعات الجديدة (advances / inventory / operations) ثم أعد المحاولة."
+    : "حدث خطأ أثناء الحفظ. حاول مرة أخرى.");
+}
+const mod = fn => async (...a) => { try { return await fn(...a); } catch (err) { dbErr(err); } };
+const freshDoc = async (col, id) => (await S.list(col)).find(x => x.id === id);   // قراءة حديثة قبل أي تعديل
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+function refreshModuleSelects() {
+  const keep = (sel, html) => { const cur = sel.value; sel.innerHTML = html; sel.value = cur; };
+  keep($("#ops-vehicle"), vehicleOptions());
+  keep($("#o-vehicle"), `<option value="">كل المعدات</option>` + vehicles.map(v => `<option value="${esc(v.id)}">${esc(v.number)} - ${esc(v.type)}</option>`).join(""));
+}
+
+/* ---------- 1) العهد والسلف ---------- */
+const ADV_TYPES = ["كارتة", "نثريات", "إعاشة", "إصلاح طارئ"];
+const aForm = $("#adv-form");
+const advSpent = a => (a.items || []).reduce((s, i) => s + (+i.amount || 0), 0);
+const advBal = a => (+a.amount || 0) - advSpent(a);
+const drivers = () => uniq([...advances.map(a => a.driver), ...vehicles.map(v => v.driver)]);
+const advTypesKnown = () => uniq([...ADV_TYPES, ...advances.flatMap(a => (a.items || []).map(i => i.type))]);
+
+function resetAdvForm() { aForm.reset(); aForm.elements.date.value = today(); }
+
+aForm.onsubmit = e => guarded(e, mod(async f => {
+  const driver = smartName(f.driver, drivers());            // يوحّد كتابة اسم السائق
+  if (!driver) return alert("أدخل اسم السائق.");
+  const amount = toNum(f.amount);
+  if (!(amount > 0)) return alert("أدخل مبلغ العهدة.");
+  await S.save("advances", { driver, amount, date: f.date, notes: cleanName(f.notes), status: "open", items: [], createdAt: Date.now(), closedAt: null });
+  resetAdvForm(); await loadData();
+}));
+
+function driverSummary() {
+  const m = {};
+  advances.forEach(a => {
+    const d = (m[normAr(a.driver)] ||= { name: a.driver, n: 0, open: 0, given: 0, spent: 0, openBal: 0 });
+    d.n++; d.given += +a.amount || 0; d.spent += advSpent(a);
+    if (a.status === "open") { d.open++; d.openBal += advBal(a); }
+  });
+  return Object.values(m).sort((a, b) => b.openBal - a.openBal);
+}
+
+function advCard(a) {
+  const spent = advSpent(a), bal = advBal(a), open = a.status === "open";
+  const items = (a.items || []).map(i => `
+    <li class="flex items-center gap-2 text-sm border-b last:border-0 py-1.5">
+      <span class="flex-1"><b>${esc(i.type)}</b>${i.notes ? ` <span class="text-slate-500">· ${esc(i.notes)}</span>` : ""}<span class="block text-xs text-slate-400">${esc(i.date)}</span></span>
+      <span class="font-bold">${money(i.amount)}</span>
+      ${open ? `<button type="button" data-adv-item-del="${esc(a.id)}|${esc(i.id)}" class="text-red-600" aria-label="حذف المصروف"><i class="fa-solid fa-xmark"></i></button>` : ""}
+    </li>`).join("") || `<li class="text-sm text-slate-500 py-1.5">لا توجد مصروفات طريق مسجلة.</li>`;
+  const tail = open ? `
+    <form data-adv-exp="${esc(a.id)}" class="mt-3 grid grid-cols-2 gap-2 bg-slate-50 rounded-xl p-3">
+      <select name="type" data-adv-type class="inp">${ADV_TYPES.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("")}<option value="other">أخرى</option></select>
+      <input name="amount" type="number" min="0.01" step="0.01" class="inp" placeholder="المبلغ" required>
+      <input name="customType" class="inp hidden col-span-2" placeholder="أدخل نوع المصروف" list="dl-adv-types" autocomplete="off">
+      <input name="date" type="date" class="inp" value="${today()}" required>
+      <input name="notes" class="inp" placeholder="ملاحظات">
+      <button class="btn col-span-2">إضافة مصروف طريق</button>
+    </form>
+    <button type="button" data-adv-settle="${esc(a.id)}" class="btn-dark w-full mt-2"><i class="fa-solid fa-scale-balanced ml-2"></i>تصفية العهدة</button>`
+    : `<div class="mt-3 rounded-xl p-3 text-sm ${bal > 0 ? "bg-amber-50 text-amber-800" : bal < 0 ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}">
+        <b>تمت التصفية</b> ${esc(a.closedDate || "")} — ${bal > 0 ? `الرصيد المتبقي ${money(bal)} يُرد للشركة` : bal < 0 ? `مستحق للسائق ${money(-bal)}` : "مسوّاة بالكامل"}
+      </div>
+      <button type="button" data-adv-reopen="${esc(a.id)}" class="mt-2 text-sm text-orange-600 font-bold">إعادة فتح العهدة</button>`;
+  return `
+    <div class="card" data-adv-card="${esc(a.id)}">
+      <div class="flex justify-between items-start gap-2">
+        <div><div class="font-extrabold text-lg">${esc(a.driver)}</div><div class="text-xs text-slate-500">${esc(a.date)}${a.notes ? ` · ${esc(a.notes)}` : ""}</div></div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs px-2 py-1 rounded-full ${open ? "bg-amber-100 text-amber-800" : "bg-slate-200 text-slate-600"}">${open ? "مفتوحة" : "مصفّاة"}</span>
+          <button type="button" data-adv-del="${esc(a.id)}" class="text-red-600" aria-label="حذف العهدة"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 mt-3 text-center">
+        <div class="bg-slate-50 rounded-xl p-2"><div class="text-xs text-slate-500">العهدة</div><b>${money(a.amount)}</b></div>
+        <div class="bg-slate-50 rounded-xl p-2"><div class="text-xs text-slate-500">المصروف</div><b>${money(spent)}</b></div>
+        <div class="bg-slate-50 rounded-xl p-2"><div class="text-xs text-slate-500">الرصيد</div><b class="${bal < 0 ? "text-red-600" : ""}">${money(bal)}</b></div>
+      </div>
+      <ul class="mt-3">${items}</ul>
+      ${tail}
+    </div>`;
+}
+
+function renderAdvances() {
+  $("#adv-summary").innerHTML = driverSummary().map(d => `
+    <tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(d.name)}</td><td>${d.n}</td><td>${d.open}</td>
+    <td>${money(d.given)}</td><td>${money(d.spent)}</td><td class="font-bold ${d.openBal < 0 ? "text-red-600" : ""}">${money(d.openBal)}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="py-4 text-slate-500">لا توجد عهد بعد.</td></tr>`;
+  const st = $("#adv-status").value, q = normAr($("#adv-q").value);
+  const rows = advances.filter(a => (!st || a.status === st) && (!q || normAr(a.driver).includes(q)))
+    .sort((a, b) => (a.status === "open" ? 0 : 1) - (b.status === "open" ? 0 : 1) || (b.date || "").localeCompare(a.date || "") || (b.createdAt || 0) - (a.createdAt || 0));
+  $("#adv-list").innerHTML = rows.map(advCard).join("") || `<p class="text-slate-500">لا توجد عهد مطابقة.</p>`;
+}
+["#adv-status", "#adv-q"].forEach(s => { $(s).oninput = renderAdvances; $(s).onchange = renderAdvances; });
+
+const advRemoveItem = mod(async (aid, iid) => {
+  const a = await freshDoc("advances", aid);
+  if (!a || a.status !== "open") return alert("العهدة غير موجودة أو تمت تصفيتها.");
+  if (!confirm("هل تريد حذف هذا المصروف من العهدة؟")) return;
+  await S.save("advances", { items: (a.items || []).filter(i => i.id !== iid) }, aid);
+  await loadData();
+});
+const advSettle = mod(async id => {
+  const a = await freshDoc("advances", id);
+  if (!a || a.status !== "open") return alert("العهدة غير موجودة أو تمت تصفيتها.");
+  const spent = advSpent(a), bal = advBal(a);
+  const res = bal > 0 ? `الرصيد المتبقي ${money(bal)} يرده السائق للشركة.` : bal < 0 ? `السائق صرف ${money(-bal)} زيادة عن العهدة (مستحق له).` : "العهدة مسوّاة بالكامل.";
+  if (!confirm(`تصفية عهدة ${a.driver}؟\nالعهدة: ${money(a.amount)}\nالمصروف: ${money(spent)}\n${res}`)) return;
+  await S.save("advances", { status: "closed", closedAt: Date.now(), closedDate: today(), spent, balance: bal }, id);
+  await loadData();
+});
+const advReopen = mod(async id => {
+  if (!confirm("إعادة فتح العهدة لتعديل مصروفاتها؟")) return;
+  await S.save("advances", { status: "open", closedAt: null }, id);
+  await loadData();
+});
+
+$("#adv-list").addEventListener("click", ev => {
+  const t = ev.target, del = t.closest("[data-adv-del]"), itDel = t.closest("[data-adv-item-del]"),
+    st = t.closest("[data-adv-settle]"), ro = t.closest("[data-adv-reopen]");
+  if (del) { const a = advances.find(x => x.id === del.dataset.advDel); return a && removeItem("advances", a.id, `هل تريد حذف عهدة ${a.driver} بقيمة ${money(a.amount)} مع كل مصروفاتها؟`); }
+  if (itDel) { const [aid, iid] = itDel.dataset.advItemDel.split("|"); return advRemoveItem(aid, iid); }
+  if (st) return advSettle(st.dataset.advSettle);
+  if (ro) return advReopen(ro.dataset.advReopen);
+});
+$("#adv-list").addEventListener("change", ev => {
+  const sel = ev.target.closest("[data-adv-type]"); if (sel) toggleOther(sel.form, "type", "customType");
+});
+$("#adv-list").addEventListener("submit", ev => {            // إضافة مصروف طريق (كارتة، نثريات...)
+  const form = ev.target.closest("[data-adv-exp]"); if (!form) return;
+  guarded(ev, mod(async f => {
+    const a = await freshDoc("advances", form.dataset.advExp);
+    if (!a || a.status !== "open") return alert("العهدة غير موجودة أو تمت تصفيتها.");
+    const amount = toNum(f.amount);
+    if (!(amount > 0)) return alert("أدخل المبلغ.");
+    const type = f.type === OTHER ? smartName(f.customType, advTypesKnown()) : f.type;
+    if (!type) return alert("أدخل نوع المصروف.");
+    const items = [...(a.items || []), { id: uid(), type, amount, date: f.date || today(), notes: cleanName(f.notes) }];
+    await S.save("advances", { items }, a.id);
+    await loadData();
+  }));
+});
+
+/* ---------- 2) مخزن قطع الغيار ---------- */
+const iForm = $("#inv-form");
+const invStd = () => [...iForm.elements.category.options].map(o => o.value).filter(v => v !== OTHER);
+const invCats = () => uniq([...invStd(), ...inventory.map(i => i.category)]);
+const isLow = i => (Number(i.qty) || 0) < SETTINGS.lowStock;
+function lowStockItems() { return inventory.filter(isLow).sort((a, b) => (Number(a.qty) || 0) - (Number(b.qty) || 0)); }
+iForm.elements.category.onchange = () => toggleOther(iForm, "category", "customCategory");
+
+function resetInvForm() {
+  iForm.reset(); iForm.elements.iid.value = ""; iForm.elements.qty.disabled = false;
+  $("#inv-qty-note").classList.add("hidden");
+  toggleOther(iForm, "category", "customCategory");
+  $("#inv-cancel").classList.add("hidden");
+}
+$("#inv-cancel").onclick = resetInvForm;
+
+iForm.onsubmit = e => guarded(e, mod(async f => {
+  const id = f.iid, name = cleanName(f.name);
+  if (!name) return alert("أدخل اسم الصنف.");
+  const category = f.category === OTHER ? smartName(f.customCategory, invCats()) : f.category;
+  if (!category) return alert("أدخل اسم التصنيف.");
+  const unit = cleanName(f.unit) || "قطعة";
+  if (inventory.some(i => i.id !== id && normAr(i.name) === normAr(name))) return alert("هذا الصنف موجود بالفعل في المخزن.");
+  if (id) await S.save("inventory", { name, category, unit }, id);          // الكمية تتعدل من أزرار الإضافة/الصرف فقط
+  else {
+    const qty = toNum(f.qty);
+    if (qty === null || qty < 0) return alert("أدخل كمية صحيحة.");
+    await S.save("inventory", { name, category, unit, qty, createdAt: Date.now(),
+      log: qty > 0 ? [{ d: today(), t: "init", q: qty, bal: qty, note: "رصيد افتتاحي" }] : [] });
+  }
+  resetInvForm(); await loadData();
+}));
+
+function editInv(i) {
+  const f = iForm;
+  f.elements.iid.value = i.id; f.elements.name.value = i.name || ""; f.elements.unit.value = i.unit || "قطعة";
+  const std = invStd().includes(i.category);
+  f.elements.category.value = std ? i.category : OTHER;
+  toggleOther(f, "category", "customCategory");
+  if (!std) f.elements.customCategory.value = i.category || "";
+  f.elements.qty.value = i.qty ?? 0; f.elements.qty.disabled = true;
+  $("#inv-qty-note").classList.remove("hidden");
+  $("#inv-cancel").classList.remove("hidden");
+  f.scrollIntoView({ behavior: "smooth" });
+}
+
+function invCard(i) {
+  const q = Number(i.qty) || 0, low = isLow(i), log = i.log || [];
+  const rows = [...log].reverse().slice(0, 10).map(l => `
+    <li class="flex justify-between gap-2 text-xs"><span>${esc(l.d)} · ${l.t === "out" ? "صرف" : l.t === "in" ? "إضافة" : "افتتاحي"} ${fmt(l.q)}${l.note ? ` · ${esc(l.note)}` : ""}</span><span class="text-slate-500">الرصيد ${fmt(l.bal)}</span></li>`).join("");
+  return `
+    <div class="card ${low ? "border-red-300 bg-red-50/50" : ""}" data-inv-card>
+      <div class="flex justify-between items-start gap-2">
+        <div><div class="text-xs text-slate-500">${esc(i.category)}</div><div class="font-extrabold">${esc(i.name)}</div></div>
+        <span class="text-xs px-2 py-1 rounded-full font-bold ${low ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}">${q <= 0 ? "نفد" : low ? "منخفض" : "متوفر"}</span>
+      </div>
+      <div class="mt-2 text-3xl font-black ${low ? "text-red-600" : ""}">${fmt(q)} <span class="text-sm font-semibold text-slate-500">${esc(i.unit || "")}</span></div>
+      <div class="mt-3 grid grid-cols-2 gap-2">
+        <input data-qty type="number" min="0" step="any" class="inp" placeholder="الكمية">
+        <input data-note class="inp" placeholder="ملاحظة / المعدة">
+        <button type="button" data-inv-in="${esc(i.id)}" class="rounded-xl px-3 py-2 font-bold bg-green-600 hover:bg-green-700 text-white"><i class="fa-solid fa-plus ml-1"></i>إضافة</button>
+        <button type="button" data-inv-out="${esc(i.id)}" class="rounded-xl px-3 py-2 font-bold bg-red-600 hover:bg-red-700 text-white"><i class="fa-solid fa-minus ml-1"></i>صرف</button>
+      </div>
+      <div class="mt-3 flex gap-4 text-sm font-bold">
+        <button type="button" data-inv-edit="${esc(i.id)}" class="text-orange-600"><i class="fa-solid fa-pen ml-1"></i>تعديل</button>
+        <button type="button" data-inv-del="${esc(i.id)}" class="text-red-600"><i class="fa-solid fa-trash ml-1"></i>حذف</button>
+      </div>
+      <details class="mt-3"><summary class="cursor-pointer text-sm text-slate-500">سجل الحركات (${log.length})</summary>
+        <ul class="mt-2 space-y-1">${rows || `<li class="text-xs text-slate-500">لا توجد حركات.</li>`}</ul></details>
+    </div>`;
+}
+
+function renderInventory() {
+  const sel = $("#inv-cat"), cur = sel.value;
+  sel.innerHTML = `<option value="">كل التصنيفات</option>` + uniq(inventory.map(i => i.category)).map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  sel.value = cur;
+  const q = normAr($("#inv-q").value), cat = sel.value, lowOnly = $("#inv-low").checked;
+  const rows = inventory.filter(i => (!q || normAr(i.name).includes(q)) && (!cat || i.category === cat) && (!lowOnly || isLow(i)))
+    .sort((a, b) => (isLow(a) ? 0 : 1) - (isLow(b) ? 0 : 1) || String(a.name).localeCompare(String(b.name), "ar"));
+  $("#inv-list").innerHTML = rows.map(invCard).join("") || `<p class="text-slate-500">لا توجد أصناف. أضف أول صنف من النموذج أعلاه.</p>`;
+}
+["#inv-q", "#inv-cat", "#inv-low"].forEach(s => { $(s).oninput = renderInventory; $(s).onchange = renderInventory; });
+
+const invAdjust = mod(async btn => {                         // إضافة / صرف كمية مع تسجيل الحركة
+  const out = "invOut" in btn.dataset, id = btn.dataset.invIn || btn.dataset.invOut;
+  const card = btn.closest("[data-inv-card]");
+  const q = toNum(card.querySelector("[data-qty]").value), note = cleanName(card.querySelector("[data-note]").value);
+  if (!(q > 0)) return alert("أدخل كمية أكبر من صفر.");
+  const item = await freshDoc("inventory", id);
+  if (!item) return alert("الصنف غير موجود.");
+  const cur = Number(item.qty) || 0;
+  if (out && q > cur) return alert(`الكمية المتاحة ${fmt(cur)} ${item.unit || ""} فقط.`);
+  const bal = Math.round((out ? cur - q : cur + q) * 1000) / 1000;
+  const log = [...(item.log || []), { d: today(), t: out ? "out" : "in", q, bal, note }].slice(-50);
+  await S.save("inventory", { qty: bal, log }, id);
+  await loadData();
+});
+$("#inv-list").addEventListener("click", ev => {
+  const adj = ev.target.closest("[data-inv-in],[data-inv-out]"); if (adj) return invAdjust(adj);
+  const ed = ev.target.closest("[data-inv-edit]");
+  if (ed) { const i = inventory.find(x => x.id === ed.dataset.invEdit); return i && editInv(i); }
+  const d = ev.target.closest("[data-inv-del]"); if (!d) return;
+  const i = inventory.find(x => x.id === d.dataset.invDel);
+  if (i) removeItem("inventory", i.id, `هل تريد حذف الصنف «${i.name}» من المخزن؟`).then(ok => { if (ok && iForm.elements.iid.value === i.id) resetInvForm(); });
+});
+
+/* ---------- 3) يومية التشغيل والمشاريع ---------- */
+const UNITS = { trips: "نقلة", m3: "م³ خرسانة", hours: "ساعة عمل", ton: "طن أسفلت" };
+const unitLabel = u => Object.prototype.hasOwnProperty.call(UNITS, u) ? UNITS[u] : (u || "");
+const oForm = $("#ops-form");
+const projects = () => uniq(operations.map(o => o.project));
+
+function resetOpsForm() {
+  oForm.reset(); oForm.elements.oid.value = ""; oForm.elements.date.value = today();
+  $("#ops-cancel").classList.add("hidden");
+}
+$("#ops-cancel").onclick = resetOpsForm;
+
+oForm.onsubmit = e => guarded(e, mod(async f => {
+  const id = f.oid, old = id ? operations.find(x => x.id === id) : null;
+  let v = vehicles.find(x => x.id === f.vehicleId);
+  if (!v && old && old.vehicleId === f.vehicleId) v = { id: old.vehicleId, number: old.vehicleNo, type: old.vehicleType };   // معدة محذوفة
+  if (!v) return alert("اختر المعدة أولاً.");
+  const project = smartName(f.project, projects());           // يوحّد كتابة اسم المشروع
+  if (!project) return alert("أدخل اسم الموقع / المشروع.");
+  const amount = toNum(f.amount);
+  if (!(amount > 0)) return alert("أدخل كمية الإنتاج.");
+  const data = { vehicleId: v.id, vehicleNo: v.number, vehicleType: v.type || "", project, date: f.date, amount, unit: f.unit, notes: cleanName(f.notes) };
+  await S.save("operations", id ? data : { ...data, createdAt: Date.now() }, id || undefined);
+  resetOpsForm(); await loadData();
+}));
+
+function opsFiltered() {
+  const fr = $("#o-from").value, to = $("#o-to").value, q = normAr($("#o-q").value), vid = $("#o-vehicle").value;
+  return operations.filter(o => (!fr || o.date >= fr) && (!to || o.date <= to) && (!q || normAr(o.project).includes(q)) && (!vid || o.vehicleId === vid)).sort(byRecent);
+}
+function renderOps() {
+  const rows = opsFiltered(), t = {}, pm = {};
+  rows.forEach(o => {
+    t[o.unit] = (t[o.unit] || 0) + (+o.amount || 0);
+    const p = (pm[normAr(o.project)] ||= { name: o.project, n: 0 }); p.n++; p[o.unit] = (p[o.unit] || 0) + (+o.amount || 0);
+  });
+  $("#ops-totals").innerHTML = Object.keys(UNITS).filter(u => t[u]).map(u => `
+    <div class="card py-2 px-4"><div class="text-xs text-slate-500">${UNITS[u]}</div><div class="text-xl font-extrabold">${fmt(t[u])}</div></div>`).join("")
+    || `<p class="text-sm text-slate-500">لا توجد سجلات تشغيل ضمن الفلتر.</p>`;
+  $("#ops-projects").innerHTML = Object.values(pm).sort((a, b) => b.n - a.n).map(p => `
+    <tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(p.name)}</td><td>${p.n}</td>
+    ${["trips", "m3", "hours", "ton"].map(u => `<td>${p[u] ? fmt(p[u]) : "-"}</td>`).join("")}</tr>`).join("")
+    || `<tr><td colspan="6" class="py-4 text-slate-500">لا توجد بيانات.</td></tr>`;
+  $("#ops-body").innerHTML = rows.map(o => `
+    <tr class="border-b last:border-0"><td class="py-2">${esc(o.date)}</td><td>${esc(vNo(o))}</td><td>${esc(o.project)}</td>
+    <td class="font-bold">${fmt(o.amount)} ${esc(unitLabel(o.unit))}</td><td>${esc(o.notes)}</td>
+    <td><button type="button" data-edit-op="${esc(o.id)}" class="text-orange-600" aria-label="تعديل"><i class="fa-solid fa-pen"></i></button></td>
+    <td><button type="button" data-del-op="${esc(o.id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button></td></tr>`).join("")
+    || `<tr><td colspan="7" class="py-4 text-slate-500">لا توجد سجلات.</td></tr>`;
+}
+["#o-from", "#o-to", "#o-q", "#o-vehicle"].forEach(s => { $(s).oninput = renderOps; $(s).onchange = renderOps; });
+
+function editOp(o) {
+  const f = oForm, gone = !vehicles.some(v => v.id === o.vehicleId);
+  f.elements.vehicleId.innerHTML = vehicleOptions(gone ? `<option value="${esc(o.vehicleId)}">${esc(o.vehicleNo)} (معدة محذوفة)</option>` : "");
+  f.elements.oid.value = o.id; f.elements.vehicleId.value = o.vehicleId || "";
+  ["project", "date", "amount", "notes"].forEach(k => f.elements[k].value = o[k] ?? "");
+  f.elements.unit.value = Object.prototype.hasOwnProperty.call(UNITS, o.unit) ? o.unit : "trips";
+  $("#ops-cancel").classList.remove("hidden");
+  f.scrollIntoView({ behavior: "smooth" });
+}
+$("#ops-body").onclick = ev => {
+  const ed = ev.target.closest("[data-edit-op]");
+  if (ed) { const o = operations.find(x => x.id === ed.dataset.editOp); return o && editOp(o); }
+  const d = ev.target.closest("[data-del-op]"); if (!d) return;
+  const o = operations.find(x => x.id === d.dataset.delOp);
+  if (o) removeItem("operations", o.id, `هل تريد حذف يومية ${o.project} بتاريخ ${o.date}؟`).then(ok => { if (ok && oForm.elements.oid.value === o.id) resetOpsForm(); });
+};
+
+/* ---------- اقتراحات الوحدات الجديدة + مركز الإشعارات ---------- */
+function renderModSuggestions() {
+  const opt = arr => arr.map(x => `<option value="${esc(x)}"></option>`).join("");
+  $("#dl-drivers").innerHTML = opt(drivers());
+  $("#dl-adv-types").innerHTML = opt(advTypesKnown().filter(t => !ADV_TYPES.includes(t)));
+  $("#dl-inv-cats").innerHTML = opt(invCats().filter(c => !invStd().includes(c)));
+  $("#dl-units").innerHTML = opt(uniq(["قطعة", "برميل", "لتر", "علبة", "كيس", "متر", ...inventory.map(i => i.unit)]));
+  $("#dl-projects").innerHTML = opt(projects());
+}
+$("#notif-tabs").onclick = ev => { const b = ev.target.closest("[data-notif]"); if (b) { notifFilter = b.dataset.notif; renderNotifs(); } };
+
 /* ---------- 8) تسجيل الدخول والتشغيل ---------- */
 const AUTH_MSG = {
   "auth/invalid-credential": "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
@@ -553,7 +1008,7 @@ $("#logout").onclick = () => S.logout();
   try { S = LIVE ? await initLive() : initDemo(); }
   catch (err) { console.error(err); return alert("تعذر الاتصال بـ Firebase. راجع المفاتيح في app.js."); }
   $("#demo-note").classList.toggle("hidden", LIVE);
-  resetExpenseForm();
+  resetExpenseForm(); resetAdvForm(); resetInvForm(); resetOpsForm();
   S.onAuth(user => {
     $("#login").classList.toggle("hidden", !!user);
     $("#app").classList.toggle("hidden", !user);

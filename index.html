@@ -8,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <style type="text/tailwindcss">
 body{font-family:Cairo,sans-serif}
 @layer components{
@@ -58,6 +59,9 @@ body{font-family:Cairo,sans-serif}
       <button class="nav-btn" data-nav="dashboard"><i class="fa-solid fa-gauge-high w-5"></i>الرئيسية</button>
       <button class="nav-btn" data-nav="vehicles"><i class="fa-solid fa-truck-monster w-5"></i>إدارة المعدات</button>
       <button class="nav-btn" data-nav="expenses"><i class="fa-solid fa-file-invoice-dollar w-5"></i>المصروفات والصيانة</button>
+      <button class="nav-btn leading-tight" data-nav="advances"><i class="fa-solid fa-hand-holding-dollar w-5"></i>حسابات السائقين والعهد</button>
+      <button class="nav-btn leading-tight" data-nav="inventory"><i class="fa-solid fa-boxes-stacked w-5"></i>مخزن قطع الغيار</button>
+      <button class="nav-btn leading-tight" data-nav="ops"><i class="fa-solid fa-helmet-safety w-5"></i>التشغيل والمشاريع</button>
       <button class="nav-btn" data-nav="reports"><i class="fa-solid fa-chart-column w-5"></i>البحث والتقارير</button>
     </nav>
     <button id="logout" class="nav-btn"><i class="fa-solid fa-right-from-bracket w-5"></i>تسجيل الخروج</button>
@@ -77,13 +81,18 @@ body{font-family:Cairo,sans-serif}
 
       <!-- الرئيسية -->
       <div id="view-dashboard" class="view space-y-5">
-        <h2 class="text-xl font-extrabold">الرئيسية</h2>
+        <div class="flex items-end justify-between flex-wrap gap-2">
+          <h2 class="text-xl font-extrabold">الرئيسية</h2>
+          <span id="dash-month" class="text-sm text-slate-500"></span>
+        </div>
 
-        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div class="kpi"><div class="ico"><i class="fa-solid fa-coins"></i></div><div><div class="text-sm text-slate-500">مصروفات الشهر</div><div id="k-exp" class="text-2xl font-extrabold">0</div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-truck"></i></div><div><div class="text-sm text-slate-500">معدات تعمل</div><div id="k-active" class="text-2xl font-extrabold">0</div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-screwdriver-wrench"></i></div><div><div class="text-sm text-slate-500">تحت الصيانة</div><div id="k-maint" class="text-2xl font-extrabold">0</div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-id-card"></i></div><div><div class="text-sm text-slate-500">رخص منتهية / قاربت على الانتهاء</div><div id="k-lic" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-hand-holding-dollar"></i></div><div><div class="text-sm text-slate-500">إجمالي العهد المفتوحة</div><div id="k-adv" class="text-2xl font-extrabold">0</div><div id="k-adv-sub" class="text-xs text-slate-500"></div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-boxes-stacked"></i></div><div><div class="text-sm text-slate-500">أصناف مخزون منخفض</div><div id="k-stock" class="text-2xl font-extrabold">0</div></div></div>
         </div>
 
         <!-- إجراءات سريعة -->
@@ -93,13 +102,35 @@ body{font-family:Cairo,sans-serif}
             <button type="button" data-go="expenses" class="btn"><i class="fa-solid fa-plus ml-2"></i>إضافة مصروف</button>
             <button type="button" data-go="vehicles" class="btn-dark"><i class="fa-solid fa-truck-monster ml-2"></i>إدارة المعدات</button>
             <button type="button" data-go="reports" class="btn-dark"><i class="fa-solid fa-chart-column ml-2"></i>التقارير</button>
+            <button type="button" data-go="advances" class="btn-dark"><i class="fa-solid fa-hand-holding-dollar ml-2"></i>عهدة جديدة</button>
+            <button type="button" data-go="inventory" class="btn-dark"><i class="fa-solid fa-boxes-stacked ml-2"></i>المخزن</button>
+            <button type="button" data-go="ops" class="btn-dark"><i class="fa-solid fa-helmet-safety ml-2"></i>تسجيل تشغيل</button>
           </div>
         </div>
 
-        <!-- التنبيهات -->
+        <!-- الرسم البياني + أعلى المعدات تكلفة -->
         <div class="grid lg:grid-cols-2 gap-5">
-          <div class="card"><h3 class="font-extrabold mb-3"><i class="fa-solid fa-bell text-orange-600 ml-2"></i>تنبيهات تغيير الزيت</h3><div id="alerts" class="space-y-2"></div></div>
-          <div class="card"><h3 class="font-extrabold mb-3"><i class="fa-solid fa-id-card text-orange-600 ml-2"></i>تنبيهات الرخص</h3><div id="lic-alerts" class="space-y-2"></div></div>
+          <div class="card">
+            <h3 class="font-extrabold mb-3"><i class="fa-solid fa-chart-pie text-orange-600 ml-2"></i>توزيع المصروفات (الشهر الحالي)</h3>
+            <div class="grid sm:grid-cols-2 gap-4 items-center">
+              <div id="chart-wrap" class="relative h-56"><canvas id="exp-chart" role="img" aria-label="رسم دائري لتوزيع مصروفات الشهر"></canvas></div>
+              <p id="chart-empty" class="hidden text-sm text-slate-500 text-center py-16">لا توجد مصروفات هذا الشهر.</p>
+              <ul id="exp-legend" class="space-y-2"></ul>
+            </div>
+          </div>
+          <div class="card">
+            <h3 class="font-extrabold mb-3"><i class="fa-solid fa-ranking-star text-orange-600 ml-2"></i>المعدات الأعلى تكلفة (الشهر الحالي)</h3>
+            <div id="top-vehicles" class="space-y-3"></div>
+          </div>
+        </div>
+
+        <!-- مركز الإشعارات الموحد -->
+        <div class="card">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+            <h3 class="font-extrabold"><i class="fa-solid fa-bell text-orange-600 ml-2"></i>مركز الإشعارات <span id="notif-count" class="text-xs align-middle bg-red-600 text-white rounded-full px-2 py-0.5 hidden"></span></h3>
+            <div id="notif-tabs" class="flex flex-wrap gap-2 text-sm"></div>
+          </div>
+          <div id="notif-list" class="space-y-2 max-h-96 overflow-y-auto"></div>
         </div>
 
         <!-- أحدث المصروفات -->
@@ -190,6 +221,117 @@ body{font-family:Cairo,sans-serif}
         </div>
       </div>
 
+
+      <!-- حسابات السائقين والعهد -->
+      <div id="view-advances" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">حسابات السائقين والعهد</h2>
+        <p id="adv-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <form id="adv-form" class="card grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+          <div class="sm:col-span-2 lg:col-span-4 font-extrabold"><i class="fa-solid fa-plus text-orange-600 ml-2"></i>صرف عهدة جديدة</div>
+          <div><label class="lbl">اسم السائق</label><input name="driver" class="inp" list="dl-drivers" autocomplete="off" required></div>
+          <div><label class="lbl">مبلغ العهدة</label><input name="amount" type="number" min="0.01" step="0.01" class="inp" required></div>
+          <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+          <div><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+          <div class="sm:col-span-2 lg:col-span-4"><button class="btn w-full sm:w-auto">صرف العهدة</button></div>
+        </form>
+
+        <div class="card overflow-x-auto">
+          <h3 class="font-extrabold mb-3">ملخص حسابات السائقين</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap">
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">السائق</th><th>عدد العهد</th><th>المفتوحة</th><th>إجمالي العهد</th><th>إجمالي المصروف</th><th>رصيد المفتوحة</th></tr></thead>
+            <tbody id="adv-summary"></tbody>
+          </table>
+        </div>
+
+        <div class="card grid sm:grid-cols-3 gap-3 items-end">
+          <div><label class="lbl">الحالة</label><select id="adv-status" class="inp"><option value="">الكل</option><option value="open">مفتوحة</option><option value="closed">مصفّاة</option></select></div>
+          <div class="sm:col-span-2"><label class="lbl">بحث باسم السائق</label><input id="adv-q" class="inp" placeholder="اسم السائق"></div>
+        </div>
+        <div id="adv-list" class="grid lg:grid-cols-2 gap-4"></div>
+      </div>
+
+      <!-- مخزن قطع الغيار -->
+      <div id="view-inventory" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">مخزن قطع الغيار</h2>
+        <p id="inv-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <form id="inv-form" class="card grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <input type="hidden" name="iid">
+          <div class="sm:col-span-2 lg:col-span-3 font-extrabold"><i class="fa-solid fa-plus text-orange-600 ml-2"></i>إضافة صنف / تعديل بياناته</div>
+          <div><label class="lbl">اسم الصنف</label><input name="name" class="inp" required></div>
+          <div>
+            <label class="lbl">التصنيف</label>
+            <select name="category" class="inp">
+              <option value="فلاتر">فلاتر</option>
+              <option value="سيور">سيور</option>
+              <option value="براميل زيت">براميل زيت</option>
+              <option value="إطارات">إطارات</option>
+              <option value="other">أخرى</option>
+            </select>
+            <input name="customCategory" class="inp mt-2 hidden" placeholder="أدخل اسم التصنيف" list="dl-inv-cats" autocomplete="off">
+          </div>
+          <div><label class="lbl">الوحدة</label><input name="unit" class="inp" list="dl-units" value="قطعة" autocomplete="off"></div>
+          <div><label class="lbl">الكمية الحالية</label><input name="qty" type="number" min="0" step="any" value="0" class="inp" required></div>
+          <div class="flex items-end gap-2 sm:col-span-1 lg:col-span-2"><button class="btn flex-1 sm:flex-none">حفظ الصنف</button><button type="button" id="inv-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+          <p id="inv-qty-note" class="hidden sm:col-span-2 lg:col-span-3 text-xs text-slate-500">تعديل الكمية يتم من أزرار «إضافة» و«صرف» في بطاقة الصنف حتى تُسجَّل الحركة.</p>
+        </form>
+
+        <div class="card grid sm:grid-cols-4 gap-3 items-end">
+          <div class="sm:col-span-2"><label class="lbl">بحث باسم الصنف</label><input id="inv-q" class="inp" placeholder="اسم الصنف"></div>
+          <div><label class="lbl">التصنيف</label><select id="inv-cat" class="inp"></select></div>
+          <label class="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 pb-3"><input id="inv-low" type="checkbox"> المنخفض فقط</label>
+        </div>
+        <div id="inv-list" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+
+      <!-- التشغيل والمشاريع -->
+      <div id="view-ops" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">التشغيل والمشاريع</h2>
+        <p id="ops-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <form id="ops-form" class="card grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <input type="hidden" name="oid">
+          <div class="sm:col-span-2 lg:col-span-3 font-extrabold"><i class="fa-solid fa-plus text-orange-600 ml-2"></i>تسجيل يومية تشغيل</div>
+          <div><label class="lbl">المعدة</label><select name="vehicleId" id="ops-vehicle" class="inp" required></select></div>
+          <div><label class="lbl">اسم الموقع / المشروع</label><input name="project" class="inp" list="dl-projects" autocomplete="off" required></div>
+          <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+          <div><label class="lbl">كمية الإنتاج</label><input name="amount" type="number" min="0" step="any" class="inp" required></div>
+          <div><label class="lbl">الوحدة</label>
+            <select name="unit" class="inp">
+              <option value="trips">عدد النقلات</option>
+              <option value="m3">متر مكعب خرسانة</option>
+              <option value="hours">ساعات العمل</option>
+              <option value="ton">طن أسفلت</option>
+            </select>
+          </div>
+          <div><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+          <div class="sm:col-span-2 lg:col-span-3 flex gap-2"><button class="btn flex-1 sm:flex-none">حفظ اليومية</button><button type="button" id="ops-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+        </form>
+
+        <div class="card grid sm:grid-cols-4 gap-3 items-end">
+          <div><label class="lbl">من تاريخ</label><input id="o-from" type="date" class="inp"></div>
+          <div><label class="lbl">إلى تاريخ</label><input id="o-to" type="date" class="inp"></div>
+          <div><label class="lbl">المشروع</label><input id="o-q" class="inp" placeholder="ابحث باسم المشروع"></div>
+          <div><label class="lbl">المعدة</label><select id="o-vehicle" class="inp"></select></div>
+        </div>
+
+        <div id="ops-totals" class="flex flex-wrap gap-3"></div>
+
+        <div class="card overflow-x-auto">
+          <h3 class="font-extrabold mb-3">ملخص المشاريع</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap">
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">المشروع</th><th>السجلات</th><th>نقلات</th><th>م³ خرسانة</th><th>ساعات عمل</th><th>طن أسفلت</th></tr></thead>
+            <tbody id="ops-projects"></tbody>
+          </table>
+        </div>
+
+        <div class="card overflow-x-auto">
+          <h3 class="font-extrabold mb-3">سجل التشغيل</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap">
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>المشروع</th><th>الإنتاج</th><th>ملاحظات</th><th>تعديل</th><th>حذف</th></tr></thead>
+            <tbody id="ops-body"></tbody>
+          </table>
+        </div>
+      </div>
+
     </main>
   </div>
 </div>
@@ -236,7 +378,12 @@ body{font-family:Cairo,sans-serif}
 <!-- اقتراحات ذكية للأسماء المخصصة (تُملأ من app.js) -->
 <datalist id="dl-cats"></datalist>
 <datalist id="dl-types"></datalist>
+<datalist id="dl-drivers"></datalist>
+<datalist id="dl-adv-types"></datalist>
+<datalist id="dl-inv-cats"></datalist>
+<datalist id="dl-units"></datalist>
+<datalist id="dl-projects"></datalist>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
