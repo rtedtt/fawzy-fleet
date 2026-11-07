@@ -4,11 +4,20 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>شركة فوزي عبده | إدارة الأسطول والصيانة</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="فوزي عبده">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>@media print{#sidebar,header,#offline-bar,#update-bar,.no-print,button,[data-export],input[type=file]{display:none!important}body{background:#fff!important}main{padding:0!important;max-width:none!important}.card{box-shadow:none!important}}</style>
 <style type="text/tailwindcss">
 body{font-family:Cairo,sans-serif}
 @layer components{
@@ -25,6 +34,11 @@ body{font-family:Cairo,sans-serif}
 </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
+<div id="offline-bar" class="hidden fixed top-0 inset-x-0 z-[60] bg-red-600 text-white text-center text-sm font-bold py-1.5">لا يوجد اتصال بالإنترنت — الاطلاع على الواجهة فقط، والحفظ وتحميل البيانات يحتاجان اتصالاً.</div>
+<div id="update-bar" class="hidden fixed bottom-4 inset-x-4 z-[60] max-w-md mx-auto bg-slate-900 text-white rounded-2xl shadow-lg p-3 flex items-center gap-3">
+  <span class="flex-1 text-sm font-bold">يتوفر تحديث جديد للتطبيق.</span>
+  <button id="update-btn" type="button" class="bg-amber-500 text-slate-900 font-bold rounded-xl px-4 py-1.5">تحديث الآن</button>
+</div>
 
 <!-- ============ شاشة تسجيل الدخول ============ -->
 <section id="login" class="min-h-screen grid place-items-center bg-slate-900 p-4">
@@ -63,7 +77,11 @@ body{font-family:Cairo,sans-serif}
       <button class="nav-btn leading-tight" data-nav="inventory"><i class="fa-solid fa-boxes-stacked w-5"></i>مخزن قطع الغيار</button>
       <button class="nav-btn leading-tight" data-nav="ops"><i class="fa-solid fa-helmet-safety w-5"></i>التشغيل والمشاريع</button>
       <button class="nav-btn" data-nav="reports"><i class="fa-solid fa-chart-column w-5"></i>البحث والتقارير</button>
+      <button class="nav-btn" data-nav="costing"><i class="fa-solid fa-calculator w-5"></i>التكلفة والتسعير</button>
+      <button class="nav-btn" data-nav="quick"><i class="fa-solid fa-bolt w-5"></i>الحاسبة السريعة</button>
+      <button class="nav-btn leading-tight" data-nav="audit"><i class="fa-solid fa-clock-rotate-left w-5"></i>السجل والنسخ الاحتياطي</button>
     </nav>
+    <button id="install-btn" type="button" class="hidden nav-btn"><i class="fa-solid fa-download w-5"></i>تثبيت التطبيق</button>
     <button id="logout" class="nav-btn"><i class="fa-solid fa-right-from-bracket w-5"></i>تسجيل الخروج</button>
   </aside>
 
@@ -74,6 +92,7 @@ body{font-family:Cairo,sans-serif}
         <img src="452624.jpg" alt="شعار شركة فوزي عبده" class="md:hidden h-10 w-10 object-contain rounded-lg" onerror="this.classList.add('hidden')">
         <div class="font-black text-slate-900">شركة <span class="text-orange-600">فوزي عبده</span></div>
       </div>
+      <button type="button" id="print-page" class="text-sm font-bold text-slate-600"><i class="fa-solid fa-print ml-1"></i><span class="hidden sm:inline">طباعة الصفحة</span></button>
       <span id="user-email" class="hidden sm:block text-sm text-slate-500" dir="ltr"></span>
     </header>
 
@@ -83,7 +102,7 @@ body{font-family:Cairo,sans-serif}
       <div id="view-dashboard" class="view space-y-5">
         <div class="flex items-end justify-between flex-wrap gap-2">
           <h2 class="text-xl font-extrabold">الرئيسية</h2>
-          <span id="dash-month" class="text-sm text-slate-500"></span>
+          <div class="flex gap-2 text-sm"><button type="button" data-export="dashboard:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="dashboard:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button><button type="button" data-export="dashboard:docx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-word ml-1"></i>Word</button><button type="button" data-export="dashboard:print" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-print ml-1"></i>طباعة</button></div><span id="dash-month" class="text-sm text-slate-500"></span>
         </div>
 
         <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -145,7 +164,11 @@ body{font-family:Cairo,sans-serif}
 
       <!-- إدارة المعدات -->
       <div id="view-vehicles" class="view hidden space-y-5">
-        <h2 class="text-xl font-extrabold">إدارة المعدات</h2>
+        <div class="flex items-center justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">إدارة المعدات</h2><div class="flex gap-2 text-sm"><button type="button" data-export="vehicles:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="vehicles:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button><button type="button" data-export="vehicles:docx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-word ml-1"></i>Word</button><button type="button" data-export="vehicles:print" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-print ml-1"></i>طباعة</button></div></div>
+        <div id="v-tabs" class="flex gap-2 text-sm">
+          <button type="button" data-vtab="active"></button>
+          <button type="button" data-vtab="archive"></button>
+        </div>
         <form id="vehicle-form" class="card grid sm:grid-cols-2 gap-3">
           <input type="hidden" name="vid">
           <div>
@@ -197,6 +220,7 @@ body{font-family:Cairo,sans-serif}
           </div>
           <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
           <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+          <div class="sm:col-span-2"><label class="lbl">المشروع (اختياري — لحساب تكلفة المشروع)</label><input name="project" class="inp" list="dl-projects" autocomplete="off"></div>
           <div class="sm:col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
           <div class="sm:col-span-2"><label class="lbl">صورة الفاتورة</label><input name="invoice" type="file" accept="image/*" class="inp file:ml-3 file:border-0 file:rounded-lg file:bg-slate-800 file:text-white file:px-3 file:py-1"></div>
           <div class="sm:col-span-2"><button class="btn w-full sm:w-auto">حفظ المصروف</button></div>
@@ -210,11 +234,11 @@ body{font-family:Cairo,sans-serif}
           <div><label class="lbl">من تاريخ</label><input id="r-from" type="date" class="inp"></div>
           <div><label class="lbl">إلى تاريخ</label><input id="r-to" type="date" class="inp"></div>
           <div><label class="lbl">رقم المعدة</label><input id="r-q" class="inp" placeholder="ابحث برقم المعدة"></div>
-          <button id="export-btn" class="btn"><i class="fa-solid fa-file-excel ml-2"></i>تصدير إلى Excel</button>
+          <div class="flex gap-2"><button id="export-btn" class="btn flex-1"><i class="fa-solid fa-file-excel ml-2"></i>Excel</button><button id="export-pdf" type="button" class="btn-dark flex-1"><i class="fa-solid fa-file-pdf ml-2"></i>PDF</button><button type="button" data-export="expenses:docx" class="btn-dark flex-1"><i class="fa-solid fa-file-word ml-2"></i>Word</button><button type="button" data-export="expenses:print" class="btn-dark flex-1"><i class="fa-solid fa-print ml-2"></i>طباعة</button></div>
         </div>
         <div class="card overflow-x-auto">
           <table class="w-full text-sm text-right whitespace-nowrap">
-            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>النوع</th><th>المبلغ</th><th>لترات</th><th>ملاحظات</th><th>الفاتورة</th><th>تعديل</th><th>حذف</th></tr></thead>
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المعدة</th><th>المشروع</th><th>النوع</th><th>المبلغ</th><th>لترات</th><th>ملاحظات</th><th>الفاتورة</th><th>تعديل</th><th>حذف</th></tr></thead>
             <tbody id="r-body"></tbody>
           </table>
           <div id="r-total" class="mt-3 font-extrabold text-orange-600"></div>
@@ -224,7 +248,7 @@ body{font-family:Cairo,sans-serif}
 
       <!-- حسابات السائقين والعهد -->
       <div id="view-advances" class="view hidden space-y-5">
-        <h2 class="text-xl font-extrabold">حسابات السائقين والعهد</h2>
+        <div class="flex items-center justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">حسابات السائقين والعهد</h2><div class="flex gap-2 text-sm"><button type="button" data-export="advances:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="advances:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button><button type="button" data-export="advances:docx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-word ml-1"></i>Word</button><button type="button" data-export="advances:print" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-print ml-1"></i>طباعة</button></div></div>
         <p id="adv-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
         <form id="adv-form" class="card grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
           <div class="sm:col-span-2 lg:col-span-4 font-extrabold"><i class="fa-solid fa-plus text-orange-600 ml-2"></i>صرف عهدة جديدة</div>
@@ -252,7 +276,7 @@ body{font-family:Cairo,sans-serif}
 
       <!-- مخزن قطع الغيار -->
       <div id="view-inventory" class="view hidden space-y-5">
-        <h2 class="text-xl font-extrabold">مخزن قطع الغيار</h2>
+        <div class="flex items-center justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">مخزن قطع الغيار</h2><div class="flex gap-2 text-sm"><button type="button" data-export="inventory:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="inventory:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button><button type="button" data-export="inventory:docx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-word ml-1"></i>Word</button><button type="button" data-export="inventory:print" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-print ml-1"></i>طباعة</button></div></div>
         <p id="inv-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
         <form id="inv-form" class="card grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <input type="hidden" name="iid">
@@ -271,6 +295,8 @@ body{font-family:Cairo,sans-serif}
           </div>
           <div><label class="lbl">الوحدة</label><input name="unit" class="inp" list="dl-units" value="قطعة" autocomplete="off"></div>
           <div><label class="lbl">الكمية الحالية</label><input name="qty" type="number" min="0" step="any" value="0" class="inp" required></div>
+          <div><label class="lbl">سعر الوحدة (اختياري)</label><input name="price" type="number" min="0" step="any" class="inp"></div>
+          <div><label class="lbl">تنبيه عند نزول الكمية عن</label><input name="minQty" type="number" min="0" step="any" value="5" class="inp"></div>
           <div class="flex items-end gap-2 sm:col-span-1 lg:col-span-2"><button class="btn flex-1 sm:flex-none">حفظ الصنف</button><button type="button" id="inv-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
           <p id="inv-qty-note" class="hidden sm:col-span-2 lg:col-span-3 text-xs text-slate-500">تعديل الكمية يتم من أزرار «إضافة» و«صرف» في بطاقة الصنف حتى تُسجَّل الحركة.</p>
         </form>
@@ -285,7 +311,7 @@ body{font-family:Cairo,sans-serif}
 
       <!-- التشغيل والمشاريع -->
       <div id="view-ops" class="view hidden space-y-5">
-        <h2 class="text-xl font-extrabold">التشغيل والمشاريع</h2>
+        <div class="flex items-center justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">التشغيل والمشاريع</h2><div class="flex gap-2 text-sm"><button type="button" data-export="ops:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="ops:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button><button type="button" data-export="ops:docx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-word ml-1"></i>Word</button><button type="button" data-export="ops:print" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-print ml-1"></i>طباعة</button></div></div>
         <p id="ops-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
         <form id="ops-form" class="card grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <input type="hidden" name="oid">
@@ -332,8 +358,182 @@ body{font-family:Cairo,sans-serif}
         </div>
       </div>
 
+      <!-- التكلفة والتسعير -->
+      <div id="view-costing" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">التكلفة والتسعير</h2>
+        <div id="cost-tabs" class="flex flex-wrap gap-2 text-sm">
+          <button type="button" data-ctab="actual">تكلفة المشاريع الفعلية</button>
+          <button type="button" data-ctab="concrete">تكلفة المتر الخرساني</button>
+          <button type="button" data-ctab="transport">تكلفة النقل</button>
+          <button type="button" data-ctab="saved">المحفوظات والتجميع</button>
+        </div>
+
+        <section data-cpanel="actual" class="space-y-4">
+          <div class="card grid sm:grid-cols-4 gap-3 items-end">
+            <div><label class="lbl">من تاريخ</label><input id="cp-from" type="date" class="inp"></div>
+            <div><label class="lbl">إلى تاريخ</label><input id="cp-to" type="date" class="inp"></div>
+            <div class="sm:col-span-2 flex gap-2"><button type="button" data-export="costproj:xlsx" class="btn-dark"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="costproj:pdf" class="btn-dark"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button><button type="button" data-export="costproj:docx" class="btn-dark"><i class="fa-solid fa-file-word ml-1"></i>Word</button><button type="button" data-export="costproj:print" class="btn-dark"><i class="fa-solid fa-print ml-1"></i>طباعة</button></div>
+          </div>
+          <div class="card overflow-x-auto">
+            <table class="w-full text-sm text-right whitespace-nowrap">
+              <thead class="text-slate-500 border-b"><tr><th class="py-2">المشروع</th><th>إجمالي المصروفات</th><th>م³</th><th>تكلفة/م³</th><th>نقلات</th><th>تكلفة/نقلة</th><th>ساعات</th><th>تكلفة/ساعة</th><th>طن</th><th>تكلفة/طن</th></tr></thead>
+              <tbody id="cp-body"></tbody>
+            </table>
+            <p class="mt-3 text-xs text-slate-500">التكلفة = المصروفات المسجلة على المشروع (حقل «المشروع» في المصروفات) ÷ كمية الإنتاج المسجلة له في «التشغيل والمشاريع».</p>
+          </div>
+        </section>
+
+        <section data-cpanel="concrete" class="hidden space-y-4">
+          <div class="card space-y-2">
+            <div class="font-extrabold">مكونات المتر المكعب (الكمية والسعر من عندك)</div>
+            <div id="cc-lines" class="space-y-2"></div>
+            <button type="button" id="cc-add" class="text-sm font-bold text-orange-600"><i class="fa-solid fa-plus ml-1"></i>إضافة بند (نقل، مضخة، عمالة...)</button>
+          </div>
+          <div class="card grid sm:grid-cols-4 gap-3">
+            <div><label class="lbl">نسبة الهالك %</label><input id="cc-waste" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">مصاريف عامة %</label><input id="cc-over" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">هامش الربح % (على التكلفة)</label><input id="cc-margin" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">الكمية (م³)</label><input id="cc-qty" type="number" min="0" step="any" value="1" class="inp"></div>
+          </div>
+          <div id="cc-out" class="grid sm:grid-cols-3 gap-3"></div>
+          <div class="card flex flex-wrap gap-2 items-end"><div class="flex-1 min-w-[12rem]"><label class="lbl">اسم السجل للحفظ</label><input id="cc-name" class="inp" placeholder="مثال: خرسانة 350 كجم"></div><button type="button" id="cc-save" class="btn">حفظ</button></div>
+        </section>
+
+        <section data-cpanel="transport" class="hidden space-y-4">
+          <div class="card grid sm:grid-cols-3 gap-3">
+            <div class="sm:col-span-3"><label class="lbl">المعدة (اختياري — لتعبئة معدل الوقود من السجل)</label><select id="tr-vehicle" class="inp"></select><p id="tr-vnote" class="text-xs text-slate-500 mt-1"></p></div>
+            <div><label class="lbl">استهلاك الوقود (لتر/ساعة)</label><input id="tr-lph" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">ساعات النقلة</label><input id="tr-hours" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">سعر لتر الوقود</label><input id="tr-fuel" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">مسافة النقلة (كم ذهاب وعودة)</label><input id="tr-km" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">صيانة وإطارات / كم</label><input id="tr-perkm" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">إهلاك / ساعة</label><input id="tr-depr" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">أجر السائق / نقلة</label><input id="tr-driver" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">رسوم وكارتة / نقلة</label><input id="tr-toll" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">مصاريف أخرى / نقلة</label><input id="tr-other" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">سعة النقلة (م³)</label><input id="tr-cap" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">هامش الربح %</label><input id="tr-margin" type="number" min="0" step="any" class="inp"></div>
+          </div>
+          <div id="tr-out" class="grid sm:grid-cols-3 gap-3"></div>
+          <div class="card flex flex-wrap gap-2 items-end"><div class="flex-1 min-w-[12rem]"><label class="lbl">اسم السجل للحفظ</label><input id="tr-name" class="inp" placeholder="مثال: نقل خلاطة 8 م³ — محطة ← الموقع"></div><button type="button" id="tr-save" class="btn">حفظ</button></div>
+        </section>
+
+        <section data-cpanel="saved" class="hidden space-y-4">
+          <p id="cs-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+          <div class="card space-y-3">
+            <div class="font-extrabold">تجميع: خرسانة + نقل = تكلفة المتر المسلَّم</div>
+            <div class="grid sm:grid-cols-3 gap-3">
+              <div><label class="lbl">سجل الخرسانة</label><select id="cb-c" class="inp"></select></div>
+              <div><label class="lbl">سجل النقل</label><select id="cb-t" class="inp"></select></div>
+              <div><label class="lbl">هامش الربح %</label><input id="cb-margin" type="number" min="0" step="any" class="inp"></div>
+            </div>
+            <div id="cb-out" class="grid sm:grid-cols-3 gap-3"></div>
+          </div>
+          <div id="cs-list" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </section>
+      </div>
+
+      <!-- الحاسبة السريعة -->
+      <div id="view-quick" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">الحاسبة السريعة</h2>
+        <div id="q-tabs" class="flex flex-wrap gap-2 text-sm">
+          <button type="button" data-qtab="calc">حسبة جديدة</button>
+          <button type="button" data-qtab="mats">أسعار المواد</button>
+          <button type="button" data-qtab="saved">الحسبات المحفوظة</button>
+        </div>
+
+        <section data-qpanel="calc" class="space-y-4">
+          <div class="card"><label class="lbl">اسم الحسبة / العميل (اختياري — مطلوب للحفظ)</label><input id="q-name" class="inp" autocomplete="off" placeholder="مثال: نقلة خرسانة لموقع السادس من أكتوبر"></div>
+          <div class="card space-y-2">
+            <div class="text-sm text-slate-500">اكتب أي مادة أو مصروف (أسمنت، سن، رمل، وقود، كارتة...). اختر الوحدة بحرية (متر، كيلو، طن، كم، نقلة، مقطوع) والحساب فوري. البنود الفاضية تتجاهل.</div>
+            <div id="q-lines" class="space-y-2"></div>
+            <button type="button" id="q-add" class="text-sm font-bold text-orange-600"><i class="fa-solid fa-plus ml-1"></i>إضافة بند</button>
+          </div>
+          <div class="card grid sm:grid-cols-3 gap-3">
+            <div><label class="lbl">نسبة إضافية % (ربح / ضريبة)</label><input id="q-pct" type="number" min="0" step="any" class="inp"></div>
+            <div><label class="lbl">قسمة الإجمالي على كمية (اختياري)</label><input id="q-div" type="number" min="0" step="any" class="inp" placeholder="مثال: 8 (متر) أو 40 (كم)"></div>
+            <div><label class="lbl">وحدة القسمة</label><input id="q-divunit" list="dl-qunits" class="inp" placeholder="متر مكعب / كم ..." autocomplete="off"></div>
+          </div>
+          <div id="q-out" class="grid sm:grid-cols-3 gap-3"></div>
+          <div class="card flex flex-wrap gap-2 items-center">
+            <button type="button" id="q-save" class="btn"><i class="fa-solid fa-floppy-disk ml-2"></i>حفظ الحسبة</button>
+            <button type="button" data-export="quick:xlsx" class="btn-dark"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button>
+            <button type="button" data-export="quick:docx" class="btn-dark"><i class="fa-solid fa-file-word ml-1"></i>Word</button>
+            <button type="button" data-export="quick:pdf" class="btn-dark"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button>
+            <button type="button" data-export="quick:print" class="btn-dark"><i class="fa-solid fa-print ml-1"></i>طباعة</button>
+          </div>
+        </section>
+
+        <section data-qpanel="mats" class="hidden space-y-4">
+          <p id="mat-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+          <form id="mat-form" class="card grid sm:grid-cols-4 gap-3 items-end">
+            <input type="hidden" name="mid">
+            <div><label class="lbl">المادة</label><input name="name" class="inp" autocomplete="off" required placeholder="أسمنت / سن / رمل..."></div>
+            <div><label class="lbl">الوحدة</label><input name="unit" list="dl-qunits" class="inp" autocomplete="off" placeholder="طن / متر مكعب"></div>
+            <div><label class="lbl">سعر اليوم</label><input name="price" type="number" min="0" step="any" class="inp" required></div>
+            <div class="flex gap-2"><button class="btn flex-1">حفظ السعر</button><button type="button" id="mat-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+          </form>
+          <div class="card overflow-x-auto">
+            <div class="flex justify-between items-center mb-2 gap-2 flex-wrap"><div class="font-extrabold">قائمة أسعار المواد</div>
+              <div class="flex gap-2 text-sm"><button type="button" data-export="materials:xlsx" class="btn-dark !px-3 !py-1.5">Excel</button><button type="button" data-export="materials:docx" class="btn-dark !px-3 !py-1.5">Word</button><button type="button" data-export="materials:pdf" class="btn-dark !px-3 !py-1.5">PDF</button><button type="button" data-export="materials:print" class="btn-dark !px-3 !py-1.5">طباعة</button></div></div>
+            <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">المادة</th><th>الوحدة</th><th>السعر</th><th>آخر تحديث</th><th></th></tr></thead><tbody id="mat-body"></tbody></table>
+            <p class="mt-3 text-xs text-slate-500">عند كتابة اسم مادة محفوظة في الحاسبة يتعبأ سعرها ووحدتها تلقائياً، وتقدر تعدّلهم لهذه الحسبة فقط دون تغيير القائمة. حفظ مادة بنفس الاسم يحدّث سعرها.</p>
+          </div>
+        </section>
+
+        <section data-qpanel="saved" class="hidden space-y-4">
+          <div id="qs-list" class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </section>
+      </div>
+
+      <!-- السجل والنسخ الاحتياطي -->
+      <div id="view-audit" class="view hidden space-y-5">
+        <h2 class="text-xl font-extrabold">السجل والنسخ الاحتياطي</h2>
+        <div class="card space-y-3">
+          <div class="font-extrabold"><i class="fa-solid fa-database text-orange-600 ml-2"></i>نسخة احتياطية بضغطة واحدة</div>
+          <p class="text-sm text-slate-500">تحمّل كل بيانات النظام (المعدات، المصروفات، العهد، المخزن، التشغيل، التكلفة، السجل). نسخة JSON للحفظ، وExcel شامل للاطلاع. الاستعادة غير متاحة من داخل النظام.</p>
+          <div class="flex gap-2 flex-wrap"><button type="button" id="bk-json" class="btn"><i class="fa-solid fa-file-code ml-2"></i>نسخة JSON</button><button type="button" id="bk-xlsx" class="btn-dark"><i class="fa-solid fa-file-excel ml-2"></i>Excel شامل</button></div>
+        </div>
+        <p id="au-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <div class="card grid sm:grid-cols-6 gap-3 items-end">
+          <div><label class="lbl">القسم</label><select id="au-col" class="inp"></select></div>
+          <div><label class="lbl">العملية</label><select id="au-action" class="inp"></select></div>
+          <div><label class="lbl">من</label><input id="au-from" type="date" class="inp"></div>
+          <div><label class="lbl">إلى</label><input id="au-to" type="date" class="inp"></div>
+          <div><label class="lbl">بحث</label><input id="au-q" class="inp" placeholder="بند / مستخدم"></div>
+          <div class="flex gap-2"><button type="button" id="au-reload" class="btn-dark !px-3" aria-label="تحديث"><i class="fa-solid fa-rotate"></i></button><button type="button" data-export="audit:xlsx" class="btn-dark !px-3">Excel</button><button type="button" data-export="audit:pdf" class="btn-dark !px-3">PDF</button><button type="button" data-export="audit:docx" class="btn-dark !px-3">Word</button><button type="button" data-export="audit:print" class="btn-dark !px-3">طباعة</button></div>
+        </div>
+        <div class="card overflow-x-auto">
+          <div id="au-count" class="text-sm text-slate-500 mb-2"></div>
+          <table class="w-full text-sm text-right whitespace-nowrap">
+            <thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>المستخدم</th><th>القسم</th><th>العملية</th><th>البند</th><th>التفاصيل</th></tr></thead>
+            <tbody id="au-body"></tbody>
+          </table>
+        </div>
+      </div>
+
     </main>
   </div>
+</div>
+
+<!-- ============ نافذة أرشفة معدة ============ -->
+<div id="arch-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="arch-title">
+  <form id="arch-form" class="card max-w-md mx-auto my-16 space-y-3">
+    <h3 id="arch-title" class="text-lg font-extrabold"><i class="fa-solid fa-box-archive text-orange-600 ml-2"></i>أرشفة المعدة <span id="arch-name"></span></h3>
+    <p class="text-sm text-slate-500">تختفي المعدة من القوائم والتنبيهات، وتبقى مصروفاتها وسجلات تشغيلها في التقارير، ويمكنك استعادتها في أي وقت.</p>
+    <input type="hidden" name="vid">
+    <div>
+      <label class="lbl">سبب الأرشفة</label>
+      <select name="reason" class="inp">
+        <option value="مباعة">مباعة</option>
+        <option value="معطلة">معطلة</option>
+        <option value="خارج الخدمة">خارج الخدمة</option>
+        <option value="other">أخرى</option>
+      </select>
+      <input name="customReason" class="inp mt-2 hidden" placeholder="اكتب السبب" autocomplete="off">
+    </div>
+    <div class="flex gap-2"><button class="btn flex-1">أرشفة</button><button type="button" id="arch-cancel" class="px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+  </form>
 </div>
 
 <!-- ============ نافذة تعديل المصروف ============ -->
@@ -361,6 +561,7 @@ body{font-family:Cairo,sans-serif}
     </div>
     <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
     <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+    <div class="sm:col-span-2"><label class="lbl">المشروع (اختياري)</label><input name="project" class="inp" list="dl-projects" autocomplete="off"></div>
     <div class="sm:col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
     <div class="sm:col-span-2">
       <label class="lbl">صورة الفاتورة</label>
@@ -379,11 +580,13 @@ body{font-family:Cairo,sans-serif}
 <datalist id="dl-cats"></datalist>
 <datalist id="dl-types"></datalist>
 <datalist id="dl-drivers"></datalist>
+<datalist id="dl-materials"></datalist>
+<datalist id="dl-qunits"><option value="متر"><option value="متر مكعب"><option value="كيلو"><option value="طن"><option value="لتر"><option value="كم"><option value="نقلة"><option value="ساعة"><option value="قطعة"><option value="مقطوع"></datalist>
 <datalist id="dl-adv-types"></datalist>
 <datalist id="dl-inv-cats"></datalist>
 <datalist id="dl-units"></datalist>
 <datalist id="dl-projects"></datalist>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
