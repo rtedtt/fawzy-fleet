@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>شركة فوزي عبده | إدارة الأسطول والصيانة</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#1e3a5f">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -18,6 +18,45 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
 <style>@media print{#sidebar,header,#offline-bar,#update-bar,.no-print,button,[data-export],input[type=file]{display:none!important}body{background:#fff!important}main{padding:0!important;max-width:none!important}.card{box-shadow:none!important}}</style>
+<style id="theme">
+/* هوية بصرية: كحلي + برتقالي من الشعار. نستخدم body كبادئة لرفع الأولوية فوق أصناف Tailwind */
+:root{--navy:#1e3a5f;--navy-2:#2a4d7c;--orange:#e85d04;--orange-d:#c2410c;--orange-btn:#d9480f}
+body{background:#f4f6fa}
+body #sidebar{background:var(--navy)}
+body #sidebar .text-amber-400{color:#ff7a1a}
+body .nav-btn{color:#cbd5e1;border-right:4px solid transparent}
+body .nav-btn:hover{background:rgba(255,255,255,.07);color:#fff}
+body .nav-btn.active{background:rgba(255,255,255,.12);color:#fff;font-weight:700;border-right-color:var(--orange)}
+body .nav-btn.active i{color:#ff7a1a}
+body .btn{background:var(--orange-btn);color:#fff}
+body .btn:hover{background:var(--orange-d)}
+body .btn-dark,body .bg-slate-800{background-color:var(--navy);color:#fff}
+body .btn-dark:hover{background-color:var(--navy-2)}
+body .inp:focus{border-color:var(--orange);box-shadow:0 0 0 2px rgba(232,93,4,.35)}
+body h2.text-xl{color:var(--navy)}
+body .kpi{transition:transform .2s,box-shadow .2s}
+body .kpi:hover{transform:translateY(-4px);box-shadow:0 12px 24px -8px rgba(30,58,95,.28)}
+body .ico{background:#fff1e6;color:var(--orange);transition:background .2s,color .2s}
+body .kpi:hover .ico{background:var(--orange);color:#fff}
+body .kpi.warn{background:#fef2f2;border-color:#fecaca}
+body .kpi.warn .ico{background:#dc2626;color:#fff}
+body table thead{background:var(--navy);color:#fff!important}
+body table thead th:first-child{border-top-right-radius:.6rem}
+body table thead th:last-child{border-top-left-radius:.6rem}
+body table th{padding:.65rem .75rem;font-weight:700}
+body table td{padding:.55rem .75rem}
+body table tbody tr:nth-child(even){background:#f8fafc}
+body table tbody tr:hover{background:#fff7ed}
+body #login{background:linear-gradient(rgba(30,58,95,.82),rgba(22,48,79,.92)),url(login-bg.jpg) center/cover no-repeat,#1e3a5f}
+body #login-form{background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.5);border-top:8px solid var(--orange)}
+body #login .inp{background:rgba(255,255,255,.94)}
+body #login-btn{transition:transform .2s}
+body #login-btn:hover{transform:scale(1.03)}
+body .vban{display:grid;place-items:center;height:7.5rem;margin:-.25rem -.25rem .5rem;border-radius:.75rem;background:linear-gradient(160deg,#eef3f9,#dfe8f3)}body .vban img{max-height:6.75rem;max-width:90%;object-fit:contain;filter:drop-shadow(0 6px 6px rgba(15,35,60,.25))}@media(max-width:640px){body #login{background:linear-gradient(rgba(30,58,95,.82),rgba(22,48,79,.92)),url(login-bg-m.jpg) center/cover no-repeat,#1e3a5f}}
+body .vico{width:2.75rem;height:2.75rem;border-radius:.75rem;display:grid;place-items:center;font-size:1.25rem;background:#fff1e6;color:var(--orange);flex:none}
+@media (prefers-reduced-motion:reduce){body .kpi,body #login-btn{transition:none}body .kpi:hover,body #login-btn:hover{transform:none}}
+@media print{body table thead{background:#e2e8f0!important;color:#000!important}body table tbody tr:nth-child(even){background:#fff}}
+</style>
 <style type="text/tailwindcss">
 body{font-family:Cairo,sans-serif}
 @layer components{
@@ -635,6 +674,6 @@ body{font-family:Cairo,sans-serif}
 <datalist id="dl-units"></datalist>
 <datalist id="dl-projects"></datalist>
 
-<script src="app.js?v=9"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

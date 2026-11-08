@@ -286,7 +286,7 @@ async function loadData() {
   sel.innerHTML = vehicleOptions(); sel.value = cur;
   refreshModuleSelects();
   // كل دالة عرض معزولة: خطأ في واحدة لا يمنع الباقي
-  [renderSuggestions, renderModSuggestions, renderDashboard, renderOilStrip, renderStatusNotes, renderReadings, renderVehicles, renderReport,
+  [renderSuggestions, renderModSuggestions, renderDashboard, renderKpiTone, renderOilStrip, renderStatusNotes, renderReadings, renderVehicles, renderReport,
    renderAdvances, renderInventory, renderOps, renderModWarn].forEach(fn => {
     try { fn(); } catch (err) { console.error(fn.name, err); }
   });
@@ -438,8 +438,9 @@ function renderVehicles() {
     const lic = licenseInfo(v), left = oilLeft(v), fs = fuelStats(v.id);
     return `
     <div class="card">
+      ${typeImg(v.type) ? `<div class="vban"><img src="img/${typeImg(v.type)}.png" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>` : ""}
       <div class="flex justify-between items-start">
-        <div><div class="text-xs text-slate-500">${esc(v.type)}</div><div class="text-lg font-extrabold">${esc(v.number)}</div></div>
+        <div class="flex items-center gap-3"><div class="vico"><i class="fa-solid ${typeIcon(v.type)}"></i></div><div><div class="text-xs text-slate-500">${esc(v.type)}</div><div class="text-lg font-extrabold">${esc(v.number)}</div></div></div>
         <span class="text-xs px-2 py-1 rounded-full ${v.status === "active" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}">${statusName(v.status)}</span>
       </div>
       <div class="mt-3 text-sm text-slate-600 space-y-1">
@@ -1774,6 +1775,33 @@ $("#pg-list").addEventListener("change", ev => {
 });
 VIEW_HOOKS.settings = renderSettings;
 
+
+/* ---- الهوية البصرية: أيقونة لكل نوع معدة + لون المؤشر يدل على التحذير فقط ---- */
+function typeIcon(t) {
+  const s = normAr(t);
+  if (/خلاط/.test(s)) return "fa-truck-moving";
+  if (/لودر|حفار|جراف|تراكتور|بوكلين/.test(s)) return "fa-tractor";
+  if (/مضخ|بامب/.test(s)) return "fa-faucet-drip";
+  if (/اسفلت|فراد|رصاص|هراس|مدحله/.test(s)) return "fa-road";
+  if (/قلاب|نقل|تريله|تريلا/.test(s)) return "fa-truck";
+  if (/ملاك|سياره|ميكروباص|بيك/.test(s)) return "fa-car-side";
+  return "fa-truck-monster";
+}
+function typeImg(t) {
+  const s = normAr(t);
+  if (/خلاط/.test(s)) return "mixer";
+  if (/مضخ|بامب/.test(s)) return "pump";
+  if (/لودر|جراف|بوكلين|تراكتور/.test(s)) return "loader";
+  if (/هراس|مدحله|رصاص/.test(s)) return "roller";
+  if (/قلاب/.test(s)) return "dump";
+  if (/نقل|تريله|تريلا|سطحه|لوبد|ونش/.test(s)) return "truck";
+  return "";
+}
+function renderKpiTone() {
+  const tone = (id, warn) => { const k = $("#" + id); k && k.closest(".kpi").classList.toggle("warn", !!warn); };
+  tone("k-lic", licenseAlerts().length > 0);
+  tone("k-stock", !pageOff("inventory") && lowStockItems().length > 0);
+}
 
 /* ---------- PWA: التثبيت • التحديث • حالة الاتصال ---------- */
 (function pwa() {

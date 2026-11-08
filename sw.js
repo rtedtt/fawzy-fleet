@@ -1,9 +1,9 @@
 /* Service Worker – شركة فوزي عبده
    غيّر VERSION مع كل تحديث للملفات ليصل التحديث للمستخدمين.
    الوضع دون اتصال = واجهة التطبيق فقط (البيانات والحفظ يحتاجان إنترنت). */
-const VERSION = "v9";
+const VERSION = "v11";
 const CACHE = "fawzy-" + VERSION;
-const SHELL = ["./", "index.html", "app.js?v=9", "manifest.json", "icon-192.png", "icon-512.png", "452624.jpg"];
+const SHELL = ["./", "index.html", "app.js?v=11", "manifest.json", "icon-192.png", "icon-512.png", "452624.jpg"];
 const CDN_HOSTS = ["cdn.tailwindcss.com", "cdnjs.cloudflare.com", "cdn.jsdelivr.net", "www.gstatic.com", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", e => {
