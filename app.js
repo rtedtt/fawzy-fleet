@@ -159,6 +159,19 @@ const goneLabel = id => vehicles.some(v => v.id === id) ? "مؤرشفة" : "مع
 /* فاصل الزيت الخاص بكل معدة (والافتراضي للمعدات القديمة) والساعات المتبقية */
 const oilInt = v => Number(v.oilInterval) > 0 ? Number(v.oilInterval) : SETTINGS.oilInterval;
 const oilLeft = v => (v.lastOil || 0) + oilInt(v) - (v.hours || 0);
+/* متوسط التشغيل اليومي من آخر قراءات العدادات (hlog) ⇐ هامش التنبيه يغطّي أسبوعاً كاملاً */
+const addHlog = (v, h) => [...(v.hlog || []).filter(x => x.d !== today()), { d: today(), h }].slice(-12);
+const useRate = v => {
+  const l = (v.hlog || []).slice(-6); if (l.length < 2) return 0;
+  const days = (Date.parse(l[l.length - 1].d) - Date.parse(l[0].d)) / 864e5, hrs = l[l.length - 1].h - l[0].h;
+  return days > 0 && hrs > 0 ? hrs / days : 0;
+};
+const oilWarn = v => Math.max(SETTINGS.oilWarnBefore, Math.ceil(useRate(v) * 7));
+const oilDays = v => { const r = useRate(v), l = oilLeft(v); return r > 0 && l > 0 ? Math.ceil(l / r) : null; };
+const oilBar = v => {
+  const i = oilInt(v), l = oilLeft(v), used = Math.min(1, Math.max(0, (i - l) / i));
+  return `<div class="h-2 rounded-full bg-slate-200 overflow-hidden"><div class="h-2 ${l <= 0 ? "bg-red-500" : l <= oilWarn(v) ? "bg-orange-500" : "bg-green-500"}" style="width:${Math.round(used * 100)}%"></div></div>`;
+};
 const vNo = e => {                                              // رقم المعدة (مع علامة "مؤرشفة" في التقارير)
   const v = vehicles.find(x => x.id === e.vehicleId);
   return v && v.number ? v.number + (v.archived ? " (مؤرشفة)" : "") : (e.vehicleNo || "");
@@ -246,6 +259,7 @@ function menu(open) {
 }
 const VIEW_HOOKS = {};                                           // دوال تُنفَّذ عند فتح صفحة (تحميل كسول)
 function show(view) {
+  if (typeof hiddenPages === "function" && hiddenPages().has(view)) view = "dashboard";   // صفحة موقوفة من الإعدادات
   $$(".view").forEach(v => v.classList.toggle("hidden", v.id !== "view-" + view));
   $$("[data-nav]").forEach(b => b.classList.toggle("active", b.dataset.nav === view));
   menu(false);
@@ -272,7 +286,7 @@ async function loadData() {
   sel.innerHTML = vehicleOptions(); sel.value = cur;
   refreshModuleSelects();
   // كل دالة عرض معزولة: خطأ في واحدة لا يمنع الباقي
-  [renderSuggestions, renderModSuggestions, renderDashboard, renderVehicles, renderReport,
+  [renderSuggestions, renderModSuggestions, renderDashboard, renderOilStrip, renderStatusNotes, renderReadings, renderVehicles, renderReport,
    renderAdvances, renderInventory, renderOps, renderModWarn].forEach(fn => {
     try { fn(); } catch (err) { console.error(fn.name, err); }
   });
@@ -363,13 +377,13 @@ function renderTopVehicles(monthExp) {
 /* مركز الإشعارات الموحد: الزيت + الرخص + المخزون (الأحمر أولاً) */
 function buildNotifs() {
   const out = [];
-  activeVehicles().map(v => ({ v, left: oilLeft(v) })).filter(a => a.left <= SETTINGS.oilWarnBefore).sort((a, b) => a.left - b.left)
+  activeVehicles().map(v => ({ v, left: oilLeft(v) })).filter(a => a.left <= oilWarn(a.v)).sort((a, b) => a.left - b.left)
     .forEach(({ v, left }) => out.push({
-      type: "oil", sev: left <= 0 ? 2 : 1, icon: "fa-oil-can", title: v.number,
-      text: left < 0 ? `تجاوزت موعد تغيير الزيت بـ ${num(-left)} ساعة` : left === 0 ? "حان موعد تغيير الزيت الآن" : `متبقي ${num(left)} ساعة على تغيير الزيت`
+      type: "oil", sev: left <= 0 ? 2 : 1, icon: "fa-oil-can", title: v.number, vid: v.id,
+      text: left < 0 ? `تجاوزت موعد تغيير الزيت بـ ${num(-left)} ساعة` : left === 0 ? "حان موعد تغيير الزيت الآن" : `متبقي ${num(left)} ساعة على تغيير الزيت${oilDays(v) ? ` (≈ ${oilDays(v)} يوم)` : ""}`
     }));
   licenseAlerts().forEach(({ v, days }) => out.push({ type: "license", sev: days <= 0 ? 2 : 1, icon: "fa-id-card", title: v.number, text: "الرخصة: " + licenseInfo(v).text }));
-  lowStockItems().forEach(i => {
+  if (!pageOff("inventory")) lowStockItems().forEach(i => {
     const q = Number(i.qty) || 0;
     out.push({ type: "stock", sev: q <= 0 ? 2 : 1, icon: "fa-boxes-stacked", title: i.name, text: q <= 0 ? "نفد من المخزن" : `كمية منخفضة: ${fmt(q)} ${i.unit || ""} فقط` });
   });
@@ -377,7 +391,7 @@ function buildNotifs() {
 }
 function renderNotifs() {
   const all = buildNotifs();
-  $("#notif-tabs").innerHTML = [["all", "الكل"], ...Object.entries(NOTIF_TYPES)].map(([k, l]) => {
+  $("#notif-tabs").innerHTML = [["all", "الكل"], ...Object.entries(NOTIF_TYPES).filter(([k]) => k !== "stock" || !pageOff("inventory"))].map(([k, l]) => {
     const c = k === "all" ? all.length : all.filter(n => n.type === k).length;
     return `<button type="button" data-notif="${k}" class="px-3 py-1 rounded-full font-bold ${notifFilter === k ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-700"}">${l} <span class="opacity-70">${c}</span></button>`;
   }).join("");
@@ -386,6 +400,7 @@ function renderNotifs() {
   $("#notif-list").innerHTML = rows.length ? rows.map(n => `
     <div class="flex items-center gap-3 p-3 rounded-xl ${n.sev === 2 ? "bg-red-50 text-red-700" : "bg-orange-50 text-orange-700"}">
       <i class="fa-solid ${n.icon}"></i><b>${esc(n.title)}</b><span class="text-sm flex-1">${esc(n.text)}</span>
+      ${n.vid ? `<button type="button" data-oil="${esc(n.vid)}" class="text-[11px] font-bold px-2 py-0.5 rounded-lg bg-white border border-current">تم التغيير</button>` : ""}
       <span class="text-[11px] px-2 py-0.5 rounded-full bg-white/70 border border-current">${NOTIF_TYPES[n.type]}</span>
     </div>`).join("") : `<p class="text-sm text-slate-500">لا توجد إشعارات حالياً. كل شيء على ما يرام.</p>`;
 }
@@ -434,10 +449,13 @@ function renderVehicles() {
         <div>الموقع: ${esc(v.location || "-")}</div>
         <div>ساعات التشغيل: ${num(v.hours)}</div>
         <div>الزيت: كل ${num(oilInt(v))} ساعة · ${left <= 0 ? "مستحق التغيير" : `متبقي ${num(left)} ساعة`}</div>
+        <div class="py-0.5">${oilBar(v)}</div>
+        ${(v.oilLog || []).length ? `<div class="text-xs text-slate-500">آخر تغيير زيت: ${esc(v.oilLog.at(-1).d)} عند ${num(v.oilLog.at(-1).h)} ساعة</div>` : ""}
         <div>الرخصة: <span class="${lic.cls}">${esc(lic.text)}</span></div>
         ${fs ? `<div>الوقود: ${fmt(fs.liters)} لتر${fs.rate != null ? ` · ${fmt(fs.rate)} لتر/ساعة` : ""}</div>` : ""}
       </div>
       <div class="mt-3 flex gap-4 text-sm font-bold">
+        <button data-oil="${esc(v.id)}" class="text-green-700"><i class="fa-solid fa-oil-can ml-1"></i>تم تغيير الزيت</button>
         <button data-edit="${esc(v.id)}" class="text-orange-600"><i class="fa-solid fa-pen ml-1"></i>تعديل</button>
         <button data-arch="${esc(v.id)}" class="text-red-600"><i class="fa-solid fa-box-archive ml-1"></i>أرشفة</button>
       </div>
@@ -536,6 +554,8 @@ vForm.onsubmit = e => guarded(e, async f => {
       if (!confirm("هل تريد إضافة معدة جديدة بنفس الرقم رغم وجود معدة مؤرشفة؟")) return;
     }
   }
+  const prev = id ? vehicles.find(x => x.id === id) : null;
+  if (!prev || prev.hours !== f.hours) { f.hoursDate = today(); f.hlog = addHlog(prev || {}, f.hours); }   // تغيّر العداد ⇐ قراءة جديدة
   await S.save("vehicles", f, id || undefined);
   resetVehicleForm(); await loadData();
 });
@@ -1244,6 +1264,8 @@ async function backup(kind) {
     const all = await fetchAll();
     if (kind === "json") downloadBlob(`نسخة-احتياطية-فوزي-عبده-${today()}.json`, new Blob([JSON.stringify({ app: "fawzy-fleet", exportedAt: new Date().toISOString(), data: all }, null, 1)], { type: "application/json" }));
     else xlsxDownload(`نسخة-كاملة-فوزي-عبده-${today()}.xlsx`, Object.entries(BK_COLS).map(([c, n]) => ({ title: n, rows: all[c].map(flatRow).map(r => r) })).map(s => ({ ...s, head: [...new Set(s.rows.flatMap(r => Object.keys(r)))] })));
+    try { localStorage.setItem("fawzy-last-backup", today()); } catch (e) { /* بدون تخزين */ }
+    renderStatusNotes();
     if (all._errors) alert(`تنبيه: تعذرت قراءة (${all._errors.join("، ")}) فلم تُضمَّن في النسخة. غالباً تحتاج إضافة قواعد الصلاحيات لها.`);
   } catch (err) { console.error(err); alert("تعذر إنشاء النسخة الاحتياطية."); }
   btn.disabled = false;
@@ -1647,6 +1669,112 @@ VIEW_HOOKS.quick = () => { setQTab($("[data-qpanel]:not(.hidden)") ? $("[data-qp
 $("#print-page").onclick = () => window.print();
 
 
+/* =====================================================
+   قراءات العدادات الأسبوعية • "تم تغيير الزيت" • شريط الزيت • الإعدادات
+   ===================================================== */
+const ageOf = d => Math.round((Date.parse(today()) - Date.parse(d)) / 864e5);
+const ageTxt = d => !d ? "لم تُسجَّل" : ageOf(d) <= 0 ? "اليوم" : `منذ ${ageOf(d)} يوم`;
+const oilTxt = v => { const l = oilLeft(v); return l < 0 ? `تجاوز بـ ${num(-l)} ساعة` : l === 0 ? "حان الموعد الآن" : `متبقي ${num(l)} ساعة`; };
+
+/* ---- قراءات العدادات ---- */
+function renderReadings() {
+  $("#rd-body").innerHTML = activeVehicles().map(v => {
+    const wk = Math.round(useRate(v) * 7), old = !v.hoursDate || ageOf(v.hoursDate) >= 8;
+    return `<tr class="border-b last:border-0">
+      <td class="py-2 font-bold">${esc(v.number)} <span class="text-xs font-normal text-slate-500">${esc(v.type)}</span></td>
+      <td>${num(v.hours)}</td><td class="${old ? "text-orange-600 font-bold" : ""}">${ageTxt(v.hoursDate)}</td>
+      <td>${wk ? num(wk) + " ساعة/أسبوع" : "-"}</td>
+      <td>${oilLeft(v) <= 0 ? '<span class="text-red-600 font-bold">مستحق</span>' : num(oilLeft(v))}</td>
+      <td><input data-rd="${esc(v.id)}" type="number" min="0" step="any" class="inp !py-1.5 w-32" placeholder="${num(v.hours)}" aria-label="قراءة ${esc(v.number)}"></td></tr>`;
+  }).join("") || `<tr><td colspan="6" class="py-4 text-slate-500">لا توجد معدات نشطة.</td></tr>`;
+}
+$("#rd-form").onsubmit = e => guarded(e, async () => {
+  const ch = $$("[data-rd]").map(i => ({ v: vehicles.find(x => x.id === i.dataset.rd), h: parseFloat(i.value) })).filter(x => x.v && Number.isFinite(x.h) && x.h >= 0);
+  if (!ch.length) return alert("اكتب قراءة واحدة على الأقل.");
+  const lower = ch.filter(x => x.h < (x.v.hours || 0));
+  if (lower.length && !confirm(`${lower.length} قراءة أقل من الساعات الحالية (${lower.map(x => x.v.number).join("، ")}). هل تريد المتابعة؟`)) return;
+  let n = 0;
+  try { for (const { v, h } of ch) { await S.save("vehicles", { hours: h, hoursDate: today(), hlog: addHlog(v, h) }, v.id); n++; } }
+  catch (err) { console.error(err); await loadData(); return alert(`تم تحديث ${n} معدة ثم حدث خطأ. راجع القراءات وأعد المحاولة.`); }
+  await loadData(); alert(`تم تحديث ${n} معدة.`);
+});
+EXPORTS.readings = () => ({ file: "قراءات-العدادات", title: "قراءات العدادات", sections: [{ title: "المعدات", rows: activeVehicles().map(v => ({
+  "المعدة": v.number, "النوع": v.type, "الساعات الحالية": v.hours ?? 0, "آخر تحديث": v.hoursDate || "", "الاستهلاك الأسبوعي (ساعة)": Math.round(useRate(v) * 7) || "",
+  "المتبقي لتغيير الزيت": oilLeft(v), "تاريخ آخر تغيير زيت": (v.oilLog || []).at(-1)?.d || "" })) }] });
+VIEW_HOOKS.readings = renderReadings;
+
+/* ---- شريط الزيت + ملاحظات الحالة في الرئيسية ---- */
+function renderOilStrip() {
+  const rows = activeVehicles().sort((a, b) => oilLeft(a) - oilLeft(b)).slice(0, 5);
+  $("#oil-strip").innerHTML = rows.map(v => {
+    const d = oilDays(v), l = oilLeft(v);
+    return `<div class="space-y-1"><div class="flex items-center gap-2 text-sm"><b>${esc(v.number)}</b><span class="text-xs text-slate-500">${esc(v.type)}</span>
+      <span class="flex-1 ${l <= 0 ? "text-red-600 font-bold" : l <= oilWarn(v) ? "text-orange-600 font-bold" : "text-slate-600"}">${oilTxt(v)}${d ? ` (≈ ${d} يوم)` : ""}</span>
+      <button type="button" data-oil="${esc(v.id)}" class="text-xs font-bold text-green-700 px-2 py-1 rounded-lg border border-green-600">تم التغيير</button></div>${oilBar(v)}</div>`;
+  }).join("") || `<p class="text-sm text-slate-500">لا توجد معدات نشطة.</p>`;
+}
+function renderStatusNotes() {
+  const act = activeVehicles(), dates = act.map(v => v.hoursDate).filter(Boolean).sort();
+  const stale = act.filter(v => !v.hoursDate || ageOf(v.hoursDate) >= 8).length;
+  $("#meter-age").innerHTML = dates.length
+    ? `آخر تحديث للعدادات: ${ageTxt(dates.at(-1))}${stale ? ` · <b class="text-orange-600">${stale} معدة لم تُحدَّث منذ أسبوع</b>` : ""}`
+    : `<b class="text-orange-600">لم تُسجَّل قراءات عدادات بعد</b>`;
+  let lb = ""; try { lb = localStorage.getItem("fawzy-last-backup") || ""; } catch (e) { /* بدون تخزين */ }
+  $("#bk-age").innerHTML = !lb ? '<b class="text-orange-600">لم تُنشأ نسخة احتياطية بعد</b>' : ageOf(lb) >= 30 ? `<b class="text-orange-600">آخر نسخة احتياطية منذ ${ageOf(lb)} يوم</b>` : `آخر نسخة احتياطية: ${ageTxt(lb)}`;
+}
+
+/* ---- تم تغيير الزيت ---- */
+const oilModal = $("#oil-modal"), oilForm = $("#oil-form");
+function closeOil() { oilModal.classList.add("hidden"); oilForm.reset(); }
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("[data-oil]"); if (!b) return;
+  const v = vehicles.find(x => x.id === b.dataset.oil); if (!v) return;
+  oilForm.reset(); oilForm.elements.vid.value = v.id; oilForm.elements.hours.value = v.hours ?? 0; $("#oil-name").textContent = v.number;
+  oilModal.classList.remove("hidden"); oilForm.elements.hours.focus();
+});
+$("#oil-cancel").onclick = closeOil;
+oilModal.onmousedown = ev => { if (ev.target === oilModal) closeOil(); };
+oilForm.onsubmit = e => guarded(e, async f => {
+  const v = vehicles.find(x => x.id === f.vid); if (!v) return closeOil();
+  const h = parseFloat(f.hours); if (!Number.isFinite(h) || h < 0) return alert("اكتب ساعات التشغيل عند تغيير الزيت.");
+  const cost = toNum(f.cost), lit = toNum(f.liters), cur = v.hours || 0;
+  const upd = { lastOil: h, oilLog: [...(v.oilLog || []), { d: today(), h, cost: cost || 0, liters: lit }].slice(-30) };
+  if (h > cur) { upd.hours = h; upd.hoursDate = today(); upd.hlog = addHlog(v, h); }       // القراءة الأحدث ترفع عداد المعدة
+  await S.save("vehicles", upd, v.id);
+  if (cost > 0) {
+    try {
+      await S.save("expenses", { vehicleId: v.id, vehicleNo: v.number, category: "oil", amount: cost, date: today(), project: "", invoiceUrl: "", createdAt: Date.now(),
+        notes: `تغيير زيت${lit ? ` (${fmt(lit)} لتر)` : ""}`, liters: null, hoursAtFill: null });
+    } catch (err) { console.error(err); closeOil(); await loadData(); return alert("تم تسجيل تغيير الزيت لكن تعذر تسجيل المصروف. أضفه يدوياً من صفحة المصروفات."); }
+  }
+  closeOil(); await loadData();
+});
+
+/* ---- الإعدادات: إخفاء الصفحات غير المستخدمة (لا يحذف أي بيانات) ---- */
+const PAGES = { advances: "حسابات السائقين والعهد", inventory: "مخزن قطع الغيار", ops: "التشغيل والمشاريع", costing: "التكلفة والتسعير", quick: "الحاسبة السريعة" };
+const hiddenPages = () => { try { return new Set(JSON.parse(localStorage.getItem("fawzy-hidden-pages") || "[]")); } catch (e) { return new Set(); } };
+const pageOff = k => hiddenPages().has(k);
+function applyPages() {
+  const h = hiddenPages();
+  $$("[data-nav]").forEach(b => b.classList.toggle("hidden", h.has(b.dataset.nav)));
+  $$("[data-go]").forEach(b => b.classList.toggle("hidden", h.has(b.dataset.go)));
+  $("#k-adv").closest(".kpi").classList.toggle("hidden", h.has("advances"));
+  $("#k-stock").closest(".kpi").classList.toggle("hidden", h.has("inventory"));
+}
+function renderSettings() {
+  const h = hiddenPages();
+  $("#pg-list").innerHTML = Object.entries(PAGES).map(([k, l]) => `
+    <label class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 cursor-pointer"><input type="checkbox" data-pg="${k}" ${h.has(k) ? "" : "checked"} class="w-5 h-5 accent-orange-600"><span class="font-bold">${l}</span></label>`).join("");
+}
+$("#pg-list").addEventListener("change", ev => {
+  const c = ev.target.closest("[data-pg]"); if (!c) return;
+  const h = hiddenPages(); c.checked ? h.delete(c.dataset.pg) : h.add(c.dataset.pg);
+  try { localStorage.setItem("fawzy-hidden-pages", JSON.stringify([...h])); } catch (e) { alert("تعذر حفظ الإعداد في هذا المتصفح."); }
+  applyPages(); try { renderNotifs(); } catch (e) { /* لم تُحمَّل البيانات بعد */ }
+});
+VIEW_HOOKS.settings = renderSettings;
+
+
 /* ---------- PWA: التثبيت • التحديث • حالة الاتصال ---------- */
 (function pwa() {
   const bar = $("#offline-bar"), ib = $("#install-btn");
@@ -1723,7 +1851,7 @@ $("#logout").onclick = () => S.logout();
 (async function boot() {
   try { S = LIVE ? await initLive() : initDemo(); }
   catch (err) { console.error(err); return alert("تعذر الاتصال بـ Firebase. راجع المفاتيح في app.js."); }
-  wrapAudit();
+  wrapAudit(); applyPages();
   $("#demo-note").classList.toggle("hidden", LIVE);
   resetExpenseForm(); resetAdvForm(); resetInvForm(); resetOpsForm();
   S.onAuth(user => {
