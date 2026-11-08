@@ -236,6 +236,7 @@ body{font-family:Cairo,sans-serif}
           <div><label class="lbl">الموقع الحالي</label><input name="location" type="text" class="inp"></div>
           <div><label class="lbl">ساعات التشغيل الحالية</label><input name="hours" type="number" min="0" class="inp" required></div>
           <div><label class="lbl">ساعات آخر تغيير زيت</label><input name="lastOil" type="number" min="0" value="0" class="inp"></div>
+          <div><label class="lbl">تاريخ آخر تغيير زيت</label><input name="lastOilDate" type="date" class="inp"></div>
           <div><label class="lbl">فاصل تغيير الزيت (ساعات)</label><input name="oilInterval" type="number" min="1" value="250" class="inp" required></div>
           <div><label class="lbl">تاريخ انتهاء الرخصة</label><input name="licenseExpiry" type="date" class="inp"></div>
           <div><label class="lbl">الحالة</label><select name="status" class="inp"><option value="active">يعمل</option><option value="maintenance">في الصيانة</option></select></div>
@@ -674,6 +675,6 @@ body{font-family:Cairo,sans-serif}
 <datalist id="dl-units"></datalist>
 <datalist id="dl-projects"></datalist>
 
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

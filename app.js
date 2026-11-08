@@ -158,6 +158,7 @@ const goneLabel = id => vehicles.some(v => v.id === id) ? "مؤرشفة" : "مع
 
 /* فاصل الزيت الخاص بكل معدة (والافتراضي للمعدات القديمة) والساعات المتبقية */
 const oilInt = v => Number(v.oilInterval) > 0 ? Number(v.oilInterval) : SETTINGS.oilInterval;
+const oilDate = v => v.lastOilDate || (v.oilLog || []).at(-1)?.d || "";
 const oilLeft = v => (v.lastOil || 0) + oilInt(v) - (v.hours || 0);
 /* متوسط التشغيل اليومي من آخر قراءات العدادات (hlog) ⇐ هامش التنبيه يغطّي أسبوعاً كاملاً */
 const addHlog = (v, h) => [...(v.hlog || []).filter(x => x.d !== today()), { d: today(), h }].slice(-12);
@@ -438,7 +439,7 @@ function renderVehicles() {
     const lic = licenseInfo(v), left = oilLeft(v), fs = fuelStats(v.id);
     return `
     <div class="card">
-      ${typeImg(v.type) ? `<div class="vban"><img src="img/${typeImg(v.type)}.png" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>` : ""}
+      ${typeImg(v.type) ? `<div class="vban"><img src="${typeImg(v.type)}.png" alt="" loading="lazy" onerror="this.parentNode.remove()"></div>` : ""}
       <div class="flex justify-between items-start">
         <div class="flex items-center gap-3"><div class="vico"><i class="fa-solid ${typeIcon(v.type)}"></i></div><div><div class="text-xs text-slate-500">${esc(v.type)}</div><div class="text-lg font-extrabold">${esc(v.number)}</div></div></div>
         <span class="text-xs px-2 py-1 rounded-full ${v.status === "active" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}">${statusName(v.status)}</span>
@@ -451,7 +452,7 @@ function renderVehicles() {
         <div>ساعات التشغيل: ${num(v.hours)}</div>
         <div>الزيت: كل ${num(oilInt(v))} ساعة · ${left <= 0 ? "مستحق التغيير" : `متبقي ${num(left)} ساعة`}</div>
         <div class="py-0.5">${oilBar(v)}</div>
-        ${(v.oilLog || []).length ? `<div class="text-xs text-slate-500">آخر تغيير زيت: ${esc(v.oilLog.at(-1).d)} عند ${num(v.oilLog.at(-1).h)} ساعة</div>` : ""}
+        ${oilDate(v) ? `<div class="text-xs text-slate-500">آخر تغيير زيت: ${esc(oilDate(v))}${(v.oilLog || []).length && !v.lastOilDate ? ` عند ${num(v.oilLog.at(-1).h)} ساعة` : ` عند ${num(v.lastOil)} ساعة`}</div>` : ""}
         <div>الرخصة: <span class="${lic.cls}">${esc(lic.text)}</span></div>
         ${fs ? `<div>الوقود: ${fmt(fs.liters)} لتر${fs.rate != null ? ` · ${fmt(fs.rate)} لتر/ساعة` : ""}</div>` : ""}
       </div>
@@ -503,7 +504,7 @@ $("#export-btn").onclick = () => {
     return {
       "النوع": v.type || "", "رقم المعدة": v.number || "", "رقم الشاسيه": v.chassis || "",
       "سنة الصنع / الموديل": v.modelYear || "", "اسم السائق": v.driver || "", "الموقع الحالي": v.location || "",
-      "الحالة": statusName(v.status), "حالة السجل": v.archived ? "مؤرشفة" : "نشطة", "سبب الأرشفة": v.archiveReason || "", "تاريخ الأرشفة": v.archivedAt || "", "ساعات التشغيل الحالية": v.hours ?? 0, "ساعات آخر تغيير زيت": v.lastOil || 0,
+      "الحالة": statusName(v.status), "حالة السجل": v.archived ? "مؤرشفة" : "نشطة", "سبب الأرشفة": v.archiveReason || "", "تاريخ الأرشفة": v.archivedAt || "", "ساعات التشغيل الحالية": v.hours ?? 0, "ساعات آخر تغيير زيت": v.lastOil || 0, "تاريخ آخر تغيير زيت": oilDate(v),
       "فاصل تغيير الزيت (ساعات)": oilInt(v), "الساعات المتبقية لتغيير الزيت": oilLeft(v),
       "تاريخ انتهاء الرخصة": v.licenseExpiry || "", "حالة الرخصة": lic.days === null ? "" : lic.text,
       "إجمالي لترات الوقود": fs ? +fs.liters.toFixed(2) : "", "استهلاك الوقود (لتر/ساعة)": fs && fs.rate != null ? +fs.rate.toFixed(2) : ""
@@ -542,7 +543,7 @@ vForm.onsubmit = e => guarded(e, async f => {
   if (f.type === OTHER) f.type = smartType(f.customType);   // "أخرى" ⇐ نحفظ النوع المكتوب
   delete f.customType;
   if (!f.type) return alert("أدخل نوع المعدة.");
-  f.hours = +f.hours; f.lastOil = +f.lastOil || 0;
+  f.hours = +f.hours; f.lastOil = +f.lastOil || 0; f.lastOilDate = f.lastOilDate || "";
   f.oilInterval = +f.oilInterval > 0 ? +f.oilInterval : SETTINGS.oilInterval;
   f.modelYear = cleanName(f.modelYear); f.location = cleanName(f.location);
   f.licenseExpiry = f.licenseExpiry || "";
@@ -611,7 +612,7 @@ $("#v-list").onclick = ev => {
   const b = ev.target.closest("[data-edit]"); if (!b) return;
   const v = vehicles.find(x => x.id === b.dataset.edit), f = vForm;
   f.elements.vid.value = v.id;
-  ["number", "chassis", "driver", "hours", "lastOil", "status", "modelYear", "location", "licenseExpiry"].forEach(k => f.elements[k].value = v[k] ?? "");
+  ["number", "chassis", "driver", "hours", "lastOil", "status", "modelYear", "location", "licenseExpiry", "lastOilDate"].forEach(k => f.elements[k].value = v[k] ?? "");
   f.elements.oilInterval.value = oilInt(v);
   // نوع غير موجود في القائمة = نوع مخصص ⇐ نعرضه في خانة "أخرى"
   const isStd = stdTypes().includes(v.type);
@@ -646,7 +647,7 @@ eForm.onsubmit = e => guarded(e, async f => {
   const file = f.invoice;
   const invoiceUrl = file && file.size ? await S.upload(file) : "";
   await S.save("expenses", { vehicleId: v.id, vehicleNo: v.number, category, amount: +f.amount, date: f.date, notes: f.notes, project: smartName(f.project, projects()), invoiceUrl, createdAt: Date.now(), ...fuelFields(category, f) });
-  if (category === "oil") await S.save("vehicles", { lastOil: v.hours }, v.id); // يصفّر عداد تنبيه الزيت
+  if (category === "oil") await S.save("vehicles", { lastOil: v.hours, lastOilDate: f.date || today() }, v.id); // يصفّر عداد تنبيه الزيت
   resetExpenseForm(); await loadData();
   alert("تم حفظ المصروف.");
 });
@@ -1701,7 +1702,7 @@ $("#rd-form").onsubmit = e => guarded(e, async () => {
 });
 EXPORTS.readings = () => ({ file: "قراءات-العدادات", title: "قراءات العدادات", sections: [{ title: "المعدات", rows: activeVehicles().map(v => ({
   "المعدة": v.number, "النوع": v.type, "الساعات الحالية": v.hours ?? 0, "آخر تحديث": v.hoursDate || "", "الاستهلاك الأسبوعي (ساعة)": Math.round(useRate(v) * 7) || "",
-  "المتبقي لتغيير الزيت": oilLeft(v), "تاريخ آخر تغيير زيت": (v.oilLog || []).at(-1)?.d || "" })) }] });
+  "المتبقي لتغيير الزيت": oilLeft(v), "تاريخ آخر تغيير زيت": oilDate(v) })) }] });
 VIEW_HOOKS.readings = renderReadings;
 
 /* ---- شريط الزيت + ملاحظات الحالة في الرئيسية ---- */
@@ -1739,7 +1740,7 @@ oilForm.onsubmit = e => guarded(e, async f => {
   const v = vehicles.find(x => x.id === f.vid); if (!v) return closeOil();
   const h = parseFloat(f.hours); if (!Number.isFinite(h) || h < 0) return alert("اكتب ساعات التشغيل عند تغيير الزيت.");
   const cost = toNum(f.cost), lit = toNum(f.liters), cur = v.hours || 0;
-  const upd = { lastOil: h, oilLog: [...(v.oilLog || []), { d: today(), h, cost: cost || 0, liters: lit }].slice(-30) };
+  const upd = { lastOil: h, lastOilDate: today(), oilLog: [...(v.oilLog || []), { d: today(), h, cost: cost || 0, liters: lit }].slice(-30) };
   if (h > cur) { upd.hours = h; upd.hoursDate = today(); upd.hlog = addHlog(v, h); }       // القراءة الأحدث ترفع عداد المعدة
   await S.save("vehicles", upd, v.id);
   if (cost > 0) {
