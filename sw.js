@@ -1,9 +1,15 @@
 /* Service Worker – شركة فوزي عبده
+   تطوير: بلال محمد سليمان | واتساب: 01128079357 | https://wa.me/201128079357
    غيّر VERSION مع كل تحديث للملفات ليصل التحديث للمستخدمين.
    الوضع دون اتصال = واجهة التطبيق فقط (البيانات والحفظ يحتاجان إنترنت). */
-const VERSION = "v13";
+const VERSION = "v14";
 const CACHE = "fawzy-" + VERSION;
-const SHELL = ["./", "index.html", "app.js?v=13", "ext.js?v=13", "manifest.json", "icon-192.png", "icon-512.png", "452624.jpg"];
+const SHELL = [
+  "./", "index.html", "app.js?v=14", "qr.js?v=14", "ext.js?v=14", "manifest.json",
+  "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png", "452624.jpg",
+  "mixer.png", "pump.png", "loader.png", "dump.png", "roller.png", "truck.png",   // صور المعدات
+  "login-bg.jpg", "login-bg-m.jpg"                                                  // خلفيات تسجيل الدخول
+];
 const CDN_HOSTS = ["cdn.tailwindcss.com", "cdnjs.cloudflare.com", "cdn.jsdelivr.net", "www.gstatic.com", "fonts.googleapis.com", "fonts.gstatic.com"];
 
 self.addEventListener("install", e => {

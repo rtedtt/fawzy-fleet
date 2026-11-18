@@ -1,5 +1,6 @@
 /* =====================================================
    شركة فوزي عبده – إدارة الأسطول والصيانة | app.js
+   تطوير: بلال محمد سليمان | واتساب: 01128079357 | https://wa.me/201128079357
    ===================================================== */
 
 /* ---------- 0) حماية الكاش ----------
@@ -35,6 +36,9 @@ const SETTINGS = {
   oilWarnBefore: 30,   // التنبيه قبل موعد الزيت بكم ساعة
   licenseWarnDays: 30, // التنبيه قبل انتهاء الرخصة بكم يوم
   recentCount: 5,      // عدد أحدث المصروفات في الرئيسية
+  enableRoles: false,  // false = الكل يدخل بنفس الحساب ويعمل كمدير (نظام الصلاحيات موقوف). غيّرها إلى true لتفعيله لاحقاً
+  oilAlertHours: 25,   // شريط التنبيهات في الرئيسية: الزيت أقل من هذا العدد من الساعات المتبقية (أو متجاوز)
+  advWarnDays: 14,     // عهدة مفتوحة أكثر من هذا العدد من الأيام تظهر باللون الأحمر
   lowStock: 5          // تنبيه المخزن عندما تقل كمية الصنف عن هذا الرقم
 };
 
@@ -50,6 +54,11 @@ async function initLive() {
   );
   const app = a.initializeApp(firebaseConfig);
   const auth = au.getAuth(app), db = fs.getFirestore(app);
+  // العمل أوفلاين: البيانات تُخزَّن على الجهاز والتعديلات تُرفع تلقائياً عند عودة الاتصال
+  try { await fs.enableIndexedDbPersistence(db); }
+  catch (err) { console.warn("offline persistence:", err && err.code); }      // failed-precondition = أكثر من تبويب مفتوح
+  // بدون اتصال لا ننتظر تأكيد الخادم (الكتابة تبقى في الطابور المحلي)
+  const ack = p => navigator.onLine ? p : Promise.race([p, new Promise(r => setTimeout(r, 1500))]);
   return {
     login: (e, p) => au.signInWithEmailAndPassword(auth, e, p),
     logout: () => au.signOut(auth),
@@ -58,12 +67,13 @@ async function initLive() {
       const s = await fs.getDocs(fs.collection(db, col));
       return s.docs.map(d => ({ id: d.id, ...d.data() }));
     },
-    async save(col, data, id) {            // id موجود = تعديل، بدونه = إضافة
-      if (id) { await fs.setDoc(fs.doc(db, col, id), data, { merge: true }); return id; }
-      return (await fs.addDoc(fs.collection(db, col), data)).id;
+    async save(col, data, id) {            // id موجود = تعديل، بدونه = إضافة (المعرّف يُولَّد محلياً ليعمل أوفلاين)
+      const ref = id ? fs.doc(db, col, id) : fs.doc(fs.collection(db, col));
+      await ack(fs.setDoc(ref, data, { merge: true }));
+      return ref.id;
     },
     async remove(col, id) {                // حذف مستند من Firestore
-      await fs.deleteDoc(fs.doc(db, col, id));
+      await ack(fs.deleteDoc(fs.doc(db, col, id)));
     },
     async upload(file) {                   // رفع صورة الفاتورة إلى ImgBB وإرجاع الرابط
       const fd = new FormData();
@@ -107,16 +117,17 @@ function initDemo() {
       { id: "o1", vehicleId: "1", vehicleNo: "خ 1234", vehicleType: "خلاطة", project: "مشروع الطريق الإقليمي", date: dayStr(-1), amount: 12, unit: "trips", notes: "", createdAt: t - 500 },
       { id: "o2", vehicleId: "3", vehicleNo: "م 9012", vehicleType: "مضخة", project: "مشروع الطريق الإقليمي", date: dayStr(0), amount: 45, unit: "m3", notes: "صب أساسات", createdAt: t - 400 }
     ],
-    costings: [], auditlog: [], materials: []
+    costings: [], auditlog: [], materials: [], biz: [], acct: [], users: []
   };
   let user = null, cb = () => {};
   return {
     login: async (e, p) => { if (!e || !p) throw 0; user = { email: e }; cb(user); },
     logout: async () => { user = null; cb(null); },
     onAuth: f => { cb = f; f(user); },
-    list: async c => store[c].map(x => ({ ...x })),
+    list: async c => (store[c] || []).map(x => ({ ...x })),
     save: async (c, d, id) => {
-      if (id) { Object.assign(store[c].find(x => x.id === id), d); return id; }
+      store[c] ||= [];
+      if (id) { const cur = store[c].find(x => x.id === id); if (cur) Object.assign(cur, d); else store[c].push({ ...d, id }); return id; }
       const n = String(Date.now()) + Math.random().toString(36).slice(2, 6); store[c].push({ ...d, id: n }); return n;
     },
     upload: async f => URL.createObjectURL(f),
@@ -260,7 +271,7 @@ function menu(open) {
 }
 const VIEW_HOOKS = {};                                           // دوال تُنفَّذ عند فتح صفحة (تحميل كسول)
 function show(view) {
-  if (typeof hiddenPages === "function" && hiddenPages().has(view)) view = "dashboard";   // صفحة موقوفة من الإعدادات
+  if (typeof hiddenPages === "function" && hiddenPages().has(view)) view = homeView();   // صفحة موقوفة (من الإعدادات أو بحسب الدور)
   $$(".view").forEach(v => v.classList.toggle("hidden", v.id !== "view-" + view));
   $$("[data-nav]").forEach(b => b.classList.toggle("active", b.dataset.nav === view));
   menu(false);
@@ -282,13 +293,14 @@ const vehicleOptions = extra => `<option value="">اختر المعدة</option>
 async function loadData() {
   [vehicles, expenses] = await Promise.all([S.list("vehicles"), S.list("expenses")]);
   // المجموعات الجديدة: فشل قراءتها (مثلاً قواعد Firestore) لا يعطّل بقية النظام
-  [advances, inventory, operations] = await Promise.all(["advances", "inventory", "operations"].map(listSafe));
+  [advances, inventory, operations, usersList] = await Promise.all(["advances", "inventory", "operations", "users"].map(listSafe));
+  try { setRole(resolveRole()); } catch (err) { console.error("role", err); }   // الدور أولاً ثم العرض
   const sel = $("#exp-vehicle"), cur = sel.value;
   sel.innerHTML = vehicleOptions(); sel.value = cur;
   refreshModuleSelects();
   // كل دالة عرض معزولة: خطأ في واحدة لا يمنع الباقي
   [renderSuggestions, renderModSuggestions, renderDashboard, renderKpiTone, renderOilStrip, renderStatusNotes, renderReadings, renderVehicles, renderReport,
-   renderAdvances, renderInventory, renderOps, renderModWarn].forEach(fn => {
+   renderAdvances, renderInventory, renderOps, renderModWarn, renderAlertStrip, renderUsers].forEach(fn => {
     try { fn(); } catch (err) { console.error(fn.name, err); }
   });
 }
@@ -523,7 +535,7 @@ async function guarded(e, fn) {
   e.preventDefault();
   const b = e.target.querySelector("button.btn"); b.disabled = true;
   try { await fn(Object.fromEntries(new FormData(e.target))); }
-  catch (err) { console.error(err); alert("حدث خطأ أثناء الحفظ. حاول مرة أخرى."); }
+  catch (err) { console.error(err); alert(err && err.code === "role-denied" ? err.message : "حدث خطأ أثناء الحفظ. حاول مرة أخرى."); }
   b.disabled = false;
 }
 
@@ -565,7 +577,7 @@ vForm.onsubmit = e => guarded(e, async f => {
 async function removeItem(col, id, msg) {
   if (!confirm(msg)) return false;
   try { await S.remove(col, id); await loadData(); return true; }
-  catch (err) { console.error(err); alert("تعذر الحذف. حاول مرة أخرى."); return false; }
+  catch (err) { console.error(err); alert(err && err.code === "role-denied" ? err.message : "تعذر الحذف. حاول مرة أخرى."); return false; }
 }
 
 /* أرشفة / استعادة / حذف نهائي (الحذف النهائي من الأرشيف فقط وبشرط عدم وجود مصروفات أو تشغيل) */
@@ -722,7 +734,7 @@ $("#r-body").onclick = ev => {
    وحدات ERP الجديدة: العهد • مخزن قطع الغيار • التشغيل والمشاريع
    مستقلة تماماً عن المعدات والمصروفات والوقود والتصدير
    ===================================================== */
-let advances = [], inventory = [], operations = [];
+let advances = [], inventory = [], operations = [], usersList = [];
 const modErr = {};                                    // أخطاء قراءة المجموعات الجديدة (غالباً قواعد Firestore)
 async function listSafe(col) {
   try { modErr[col] = ""; return await S.list(col); }
@@ -740,8 +752,9 @@ function renderModWarn() {
 }
 function dbErr(err) {
   console.error(err);
+  if (err && err.code === "role-denied") return alert(err.message);
   alert(err && err.code === "permission-denied"
-    ? "لا توجد صلاحية للكتابة في Firestore لهذه الوحدة. أضف قواعد الصلاحيات للمجموعات الجديدة (advances / inventory / operations / costings / materials / auditlog) ثم أعد المحاولة."
+    ? "لا توجد صلاحية للكتابة في Firestore لهذه الوحدة. أضف قواعد الصلاحيات للمجموعات الجديدة (advances / inventory / operations / costings / materials / auditlog / biz / acct / users) ثم أعد المحاولة."
     : "حدث خطأ أثناء الحفظ. حاول مرة أخرى.");
 }
 const mod = fn => async (...a) => { try { return await fn(...a); } catch (err) { dbErr(err); } };
@@ -789,6 +802,7 @@ function advCard(a) {
     <li class="flex items-center gap-2 text-sm border-b last:border-0 py-1.5">
       <span class="flex-1"><b>${esc(i.type)}</b>${i.notes ? ` <span class="text-slate-500">· ${esc(i.notes)}</span>` : ""}<span class="block text-xs text-slate-400">${esc(i.date)}</span></span>
       <span class="font-bold">${money(i.amount)}</span>
+      <button type="button" data-adv-item-edit="${esc(a.id)}|${esc(i.id)}" class="text-orange-600" aria-label="تعديل المصروف"><i class="fa-solid fa-pen"></i></button>
       ${open ? `<button type="button" data-adv-item-del="${esc(a.id)}|${esc(i.id)}" class="text-red-600" aria-label="حذف المصروف"><i class="fa-solid fa-xmark"></i></button>` : ""}
     </li>`).join("") || `<li class="text-sm text-slate-500 py-1.5">لا توجد مصروفات طريق مسجلة.</li>`;
   const tail = open ? `
@@ -812,6 +826,7 @@ function advCard(a) {
         <div><div class="font-extrabold text-lg">${esc(a.driver)}</div><div class="text-xs text-slate-500">${esc(a.date)}${a.notes ? ` · ${esc(a.notes)}` : ""}</div></div>
         <div class="flex items-center gap-2">
           <span class="text-xs px-2 py-1 rounded-full ${open ? "bg-amber-100 text-amber-800" : "bg-slate-200 text-slate-600"}">${open ? "مفتوحة" : "مصفّاة"}</span>
+          <button type="button" data-adv-edit="${esc(a.id)}" class="text-orange-600" aria-label="تعديل العهدة"><i class="fa-solid fa-pen"></i></button>
           <button type="button" data-adv-del="${esc(a.id)}" class="text-red-600" aria-label="حذف العهدة"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
@@ -859,9 +874,56 @@ const advReopen = mod(async id => {
   await loadData();
 });
 
+/* تعديل عهدة أو بند من بنودها (مع تسجيل "من ← إلى" في سجل التعديلات) */
+const aeModal = $("#adv-edit-modal"), aeForm = $("#adv-edit-form");
+function closeAdvEdit() { aeModal.classList.add("hidden"); aeForm.reset(); }
+function openAdvEdit(a, item) {
+  const f = aeForm; f.reset();
+  f.elements.aid.value = a.id; f.elements.iid.value = item ? item.id : "";
+  f.querySelectorAll("[data-ae]").forEach(el => el.classList.toggle("hidden", el.dataset.ae !== (item ? "item" : "adv")));
+  f.elements.driver.required = !item; f.elements.type.required = !!item;
+  $("#adv-edit-title").textContent = item ? `تعديل مصروف طريق — ${a.driver}` : `تعديل عهدة ${a.driver}`;
+  const src = item || a;
+  if (item) f.elements.type.value = item.type || "";
+  else f.elements.driver.value = a.driver || "";
+  f.elements.amount.value = src.amount ?? ""; f.elements.date.value = src.date || ""; f.elements.notes.value = src.notes || "";
+  aeModal.classList.remove("hidden");
+  (item ? f.elements.type : f.elements.driver).focus();
+}
+$("#adv-edit-cancel").onclick = closeAdvEdit;
+aeModal.onmousedown = ev => { if (ev.target === aeModal) closeAdvEdit(); };
+document.addEventListener("keydown", ev => { if (ev.key === "Escape" && !aeModal.classList.contains("hidden")) closeAdvEdit(); });
+const chg = rows => rows.filter(([, o, n]) => String(o ?? "") !== String(n ?? "")).map(([l, o, n]) => `${l}: من ${o || "—"} إلى ${n || "—"}`).join(" · ");
+aeForm.onsubmit = e => guarded(e, mod(async f => {
+  const a = await freshDoc("advances", f.aid); if (!a) return alert("العهدة غير موجودة.");
+  const amount = toNum(f.amount); if (!(amount > 0)) return alert("أدخل مبلغاً أكبر من صفر.");
+  if (!f.date) return alert("حدد التاريخ.");
+  const notes = cleanName(f.notes);
+  let upd, note;
+  if (!f.iid) {                                                          // تعديل العهدة نفسها
+    const driver = smartName(f.driver, drivers()); if (!driver) return alert("أدخل اسم السائق / المستلم.");
+    upd = { driver, amount, date: f.date, notes };
+    if (a.status === "closed") { upd.spent = advSpent(a); upd.balance = amount - advSpent(a); }   // العهدة المصفّاة: يُعاد حساب الرصيد
+    note = chg([["السائق", a.driver, driver], ["المبلغ", a.amount, amount], ["التاريخ", a.date, f.date], ["ملاحظات", a.notes, notes]]);
+  } else {                                                               // تعديل بند (مصروف طريق)
+    const old = (a.items || []).find(i => i.id === f.iid); if (!old) return alert("البند غير موجود.");
+    const type = smartName(f.type, advTypesKnown()); if (!type) return alert("أدخل نوع المصروف.");
+    const items = (a.items || []).map(i => i.id === f.iid ? { ...i, type, amount, date: f.date, notes } : i);
+    upd = { items };
+    if (a.status === "closed") { const sp = advSpent({ items }); upd.spent = sp; upd.balance = (+a.amount || 0) - sp; }
+    note = `بند ${old.type}: ` + chg([["النوع", old.type, type], ["المبلغ", old.amount, amount], ["التاريخ", old.date, f.date], ["ملاحظات", old.notes, notes]]);
+  }
+  if (!note || /: $/.test(note)) { closeAdvEdit(); return; }                      // لا تغيير فعلي
+  auditNote = `تعديل ${note}`;
+  await S.save("advances", upd, a.id);
+  closeAdvEdit(); await loadData();
+}));
 $("#adv-list").addEventListener("click", ev => {
   const t = ev.target, del = t.closest("[data-adv-del]"), itDel = t.closest("[data-adv-item-del]"),
     st = t.closest("[data-adv-settle]"), ro = t.closest("[data-adv-reopen]"), rc = t.closest("[data-adv-receipt]");
+  const ed = t.closest("[data-adv-edit]"), itEd = t.closest("[data-adv-item-edit]");
+  if (ed) { const a = advances.find(x => x.id === ed.dataset.advEdit); return a && openAdvEdit(a); }
+  if (itEd) { const [aid, iid] = itEd.dataset.advItemEdit.split("|"); const a = advances.find(x => x.id === aid); return a && openAdvEdit(a, (a.items || []).find(i => i.id === iid)); }
   if (rc) { const a = advances.find(x => x.id === rc.dataset.advReceipt); return a && printDoc(receiptDoc(a)); }
   if (del) { const a = advances.find(x => x.id === del.dataset.advDel); return a && removeItem("advances", a.id, `هل تريد حذف عهدة ${a.driver} بقيمة ${money(a.amount)} مع كل مصروفاتها؟`); }
   if (itDel) { const [aid, iid] = itDel.dataset.advItemDel.split("|"); return advRemoveItem(aid, iid); }
@@ -1062,8 +1124,8 @@ function renderOps() {
   $("#ops-body").innerHTML = rows.map(o => `
     <tr class="border-b last:border-0"><td class="py-2">${esc(o.date)}</td><td>${esc(vNo(o))}</td><td>${esc(o.project)}</td>
     <td class="font-bold">${fmt(o.amount)} ${esc(unitLabel(o.unit))}</td><td>${esc(o.notes)}</td>
-    <td><button type="button" data-edit-op="${esc(o.id)}" class="text-orange-600" aria-label="تعديل"><i class="fa-solid fa-pen"></i></button></td>
-    <td><button type="button" data-del-op="${esc(o.id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button></td></tr>`).join("")
+    <td class="ops-act"><button type="button" data-edit-op="${esc(o.id)}" class="text-orange-600" aria-label="تعديل"><i class="fa-solid fa-pen"></i></button></td>
+    <td class="ops-act"><button type="button" data-del-op="${esc(o.id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button></td></tr>`).join("")
     || `<tr><td colspan="7" class="py-4 text-slate-500">لا توجد سجلات.</td></tr>`;
 }
 ["#o-from", "#o-to", "#o-q", "#o-vehicle"].forEach(s => { $(s).oninput = renderOps; $(s).onchange = renderOps; });
@@ -1145,9 +1207,11 @@ table{width:100%;border-collapse:collapse;margin-bottom:6px}th,td{border:1px sol
 th{background:#f1f5f9}thead{display:table-header-group}tr{page-break-inside:avoid}
 .muted{color:#64748b}.note{font-weight:700}
 .sig{display:flex;gap:24px;margin-top:48px}.sig div{flex:1;text-align:center;border-top:1px solid #0f172a;padding-top:6px}
+.devft{position:fixed;bottom:0;right:0;left:0;text-align:center;font-size:10px;color:#64748b;border-top:1px solid #e2e8f0;padding-top:3px;background:#fff}
+body{padding-bottom:22px}
 </style></head><body>
 <div class="head"><img src="${esc(logo)}" alt="" onerror="this.style.display='none'"><div><b>شركة فوزي عبده</b><small>للخرسانة والأسفلت · ${esc(today())}</small></div></div>
-<h1>${esc(title)}</h1>${sections.map(tbl).join("")}${footer}</body></html>`);
+<h1>${esc(title)}</h1>${sections.map(tbl).join("")}${footer}<div class="devft">تطوير النظام: بلال محمد سليمان · واتساب 01128079357</div></body></html>`);
   w.document.close();
   setTimeout(() => { try { w.focus(); w.print(); } catch (e) { /* المستخدم يطبع يدوياً */ } }, 700);
 }
@@ -1250,8 +1314,67 @@ function receiptDoc(a) {
   };
 }
 
+/* ---- شريط التنبيهات الذكي (الرئيسية): الزيت القريب/المتجاوز + العهد المفتوحة غير المصفّاة ---- */
+function renderAlertStrip() {
+  const el = $("#alert-strip"); if (!el) return;
+  const chips = [];
+  const oil = activeVehicles().filter(v => oilLeft(v) < SETTINGS.oilAlertHours).sort((x, y) => oilLeft(x) - oilLeft(y));
+  oil.forEach(v => {
+    const l = oilLeft(v);
+    chips.push({ go: "readings", sev: l <= 0 ? 2 : 1, icon: "fa-oil-can", t: `${v.number} — ${l < 0 ? `تجاوز موعد الزيت بـ ${num(-l)} ساعة` : l === 0 ? "موعد الزيت الآن" : `متبقي ${num(l)} ساعة للزيت`}` });
+  });
+  if (!pageOff("advances")) {
+    advances.filter(a => a.status === "open").sort((x, y) => (x.date || "").localeCompare(y.date || "")).forEach(a => {
+      const d = a.date ? ageOf(a.date) : 0;
+      chips.push({ go: "advances", sev: d > SETTINGS.advWarnDays ? 2 : 1, icon: "fa-hand-holding-dollar", t: `عهدة ${a.driver} مفتوحة غير مصفّاة${d ? ` منذ ${d} يوم` : ""} — المتبقي ${money(advBal(a))}` });
+    });
+  }
+  const red = chips.some(c => c.sev === 2);
+  el.className = "no-print rounded-2xl border p-3 " + (!chips.length ? "bg-green-50 border-green-200 text-green-800" : red ? "bg-red-50 border-red-200" : "bg-orange-50 border-orange-200");
+  el.innerHTML = !chips.length
+    ? `<i class="fa-solid fa-circle-check ml-2"></i><b>لا توجد تنبيهات عاجلة:</b> لا زيت قارب على الاستحقاق ولا عهد مفتوحة.`
+    : `<div class="flex items-center gap-2 font-extrabold mb-2 ${red ? "text-red-700" : "text-orange-700"}"><i class="fa-solid fa-bell"></i>تنبيهات تحتاج متابعة (${chips.length})</div>
+       <div class="flex flex-wrap gap-2">${chips.map(c => `<button type="button" data-alert-go="${c.go}" class="text-xs sm:text-sm font-bold rounded-full px-3 py-1.5 border ${c.sev === 2 ? "bg-red-100 text-red-800 border-red-300" : "bg-white text-orange-800 border-orange-300"}"><i class="fa-solid ${c.icon} ml-1"></i>${esc(c.t)}</button>`).join("")}</div>`;
+}
+document.addEventListener("click", ev => { const b = ev.target.closest("[data-alert-go]"); if (b) show(b.dataset.alertGo); });
+
+/* ---- إدارة المستخدمين والأدوار (للمدير فقط) ---- */
+function renderUsers() {
+  const card = $("#users-card"); if (!card) return;
+  card.classList.toggle("hidden", !SETTINGS.enableRoles || userRole !== "manager");
+  const w = $("#users-warn");
+  w.textContent = modErr.users === "perm" ? "لا توجد صلاحية لمجموعة «users» في Firestore. أضف لها قواعد الصلاحيات حتى تتمكن من حفظ الأدوار (وإلى ذلك الحين يُعامل الجميع كمدير)." : modErr.users ? "تعذر تحميل المستخدمين." : "";
+  w.classList.toggle("hidden", !modErr.users);
+  $("#users-body").innerHTML = usersList.map(u => `<tr class="border-b last:border-0"><td class="py-2" dir="ltr">${esc(u.email || u.id)}</td>
+    <td><select data-user-role="${esc(u.id)}" class="inp !py-1">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
+    <td><button type="button" data-user-del="${esc(u.id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button></td></tr>`).join("")
+    || `<tr><td colspan="3" class="py-3 text-slate-500">لم تُعرَّف أدوار بعد، فيُعامل كل مستخدم كمدير. أضف أول مستخدم من النموذج (يُضاف حسابك مديراً تلقائياً).</td></tr>`;
+}
+const managers = () => usersList.filter(u => u.role === "manager").length;
+$("#user-form").onsubmit = e => guarded(e, mod(async f => {
+  const email = String(f.email || "").trim().toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) return alert("أدخل بريداً إلكترونياً صحيحاً.");
+  if (!usersList.length && email !== myEmail()) await S.save("users", { email: myEmail(), role: "manager" }, myEmail());   // لا نقفل المدير الحالي خارج النظام
+  if (email === myEmail() && f.role !== "manager" && managers() <= 1) return alert("لا يمكن تغيير دورك قبل وجود مدير آخر.");
+  await S.save("users", { email, role: f.role }, email);
+  e.target.reset(); await loadData();
+}));
+$("#users-body").addEventListener("change", mod(async ev => {
+  const s = ev.target.closest("[data-user-role]"); if (!s) return;
+  const u = usersList.find(x => x.id === s.dataset.userRole); if (!u) return;
+  if (u.role === "manager" && s.value !== "manager" && managers() <= 1) { s.value = "manager"; return alert("يجب أن يبقى مدير واحد على الأقل."); }
+  await S.save("users", { role: s.value }, u.id); await loadData();
+}));
+$("#users-body").addEventListener("click", mod(async ev => {
+  const b = ev.target.closest("[data-user-del]"); if (!b) return;
+  const u = usersList.find(x => x.id === b.dataset.userDel); if (!u) return;
+  if (u.role === "manager" && managers() <= 1) return alert("لا يمكن حذف المدير الوحيد.");
+  if (!confirm(`حذف صلاحيات ${u.email || u.id}؟ سيُعامل كمشرف موقع.`)) return;
+  await S.remove("users", u.id); await loadData();
+}));
+
 /* ---- النسخ الاحتياطي ---- */
-const BK_COLS = { vehicles: "المعدات", expenses: "المصروفات", advances: "العهد", inventory: "المخزن", operations: "التشغيل", costings: "التكلفة", materials: "أسعار المواد", auditlog: "السجل" };
+const BK_COLS = { vehicles: "المعدات", expenses: "المصروفات", advances: "العهد", inventory: "المخزن", operations: "التشغيل", costings: "التكلفة", materials: "أسعار المواد", users: "المستخدمون", auditlog: "السجل" };
 async function fetchAll() {
   const out = {};
   for (const c of Object.keys(BK_COLS)) {
@@ -1274,19 +1397,69 @@ async function backup(kind) {
 }
 $("#bk-json").onclick = () => backup("json");
 $("#bk-xlsx").onclick = () => backup("xlsx");
+/* تصدير جدول واحد CSV (UTF-8 مع BOM ليفتح بالعربية سليماً في Excel) */
+const csvCell = v => { v = v == null ? "" : String(v); return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; };
+async function exportCsv() {
+  const col = $("#bk-csv-col").value, btn = $("#bk-csv"); btn.disabled = true;
+  try {
+    const rows = (await S.list(col)).map(flatRow);
+    if (!rows.length) return alert("لا توجد بيانات في هذا الجدول.");
+    const head = [...new Set(rows.flatMap(r => Object.keys(r)))];
+    const txt = "﻿" + [head.map(csvCell).join(","), ...rows.map(r => head.map(h => csvCell(r[h])).join(","))].join("\r\n");
+    downloadBlob(`${BK_COLS[col] || col}-فوزي-عبده-${today()}.csv`, new Blob([txt], { type: "text/csv;charset=utf-8" }));
+  } catch (err) { console.error(err); alert("تعذر تصدير الجدول."); }
+  btn.disabled = false;
+}
+function fillCsvSelect() { const s = $("#bk-csv-col"), c = s.value; s.innerHTML = Object.entries(BK_COLS).map(([k, v]) => `<option value="${k}">${v}</option>`).join(""); if (c) s.value = c; }
+$("#bk-csv").onclick = exportCsv;
+$("#bk-csv-col").onfocus = fillCsvSelect;      // يضم الجداول التي يضيفها ext.js
+fillCsvSelect();
+
 
 /* ---- سجل التعديلات: يغلّف S.save / S.remove بعد التهيئة ---- */
-const AUD_COLS = { vehicles: "المعدات", expenses: "المصروفات", advances: "العهد", inventory: "المخزن", operations: "التشغيل", costings: "التكلفة", materials: "أسعار المواد" };
+const AUD_COLS = { vehicles: "المعدات", expenses: "المصروفات", advances: "العهد", inventory: "المخزن", operations: "التشغيل", costings: "التكلفة", materials: "أسعار المواد", users: "المستخدمون" };
 const AUD_ACT = { add: "إضافة", edit: "تعديل", delete: "حذف", archive: "أرشفة", restore: "استعادة", settle: "تصفية" };
+let auditNote = "";                                                    // وصف مخصص للعملية التالية (يُستهلك مرة واحدة)
+const FIELD_AR = { amount: "المبلغ", driver: "السائق", date: "التاريخ", notes: "ملاحظات", name: "الاسم", phone: "التليفون", qty: "الكمية", price: "السعر", total: "الإجمالي",
+  type: "النوع", desc: "الوصف", cost: "التكلفة", project: "المشروع", priceM3: "سعر م³", priceTrip: "سعر الرحلة", unit: "الوحدة", companyId: "الشركة", vehicleId: "المعدة", vehicleNo: "رقم المعدة",
+  number: "رقم المعدة", hours: "الساعات", status: "الحالة", location: "الموقع", category: "التصنيف", role: "الدور", licNo: "رقم الرخصة", licExp: "انتهاء الرخصة", accountant: "المحاسب", opening: "العهدة المرحّلة", from: "من", to: "إلى" };
+const BIZ_KIND = { company: "شركة", supply: "توريد", payment: "دفعة", driver: "سائق", maint: "صيانة" };
+const SUP_COLS = ["vehicles", "expenses", "operations"], SUP_VEH_KEYS = ["hours", "hoursDate", "hlog"];
+function roleDeny(msg) { const e = new Error(msg); e.code = "role-denied"; throw e; }
+function checkRole(op, col, d, id) {                                   // يُنفَّذ قبل أي كتابة/حذف
+  if (userRole === "manager") return;
+  if (col === "users") roleDeny("إدارة المستخدمين والصلاحيات متاحة للمدير فقط.");
+  if (userRole === "accountant") return;
+  const bad = () => roleDeny("صلاحية مشرف الموقع تقتصر على تسجيل ساعات التشغيل والوقود ويومية التشغيل، دون تعديل أو حذف.");
+  if (op === "remove" || !SUP_COLS.includes(col)) return bad();
+  if (col === "vehicles" && (!id || Object.keys(d).some(k => !SUP_VEH_KEYS.includes(k)))) return bad();
+  if (col === "expenses" && (id || d.category !== "fuel")) return bad();
+  if (col === "operations" && id) return bad();
+}
 function wrapAudit() {
   if (S._audited) return; S._audited = true;
   const save0 = S.save.bind(S), rem0 = S.remove.bind(S);
-  const store = () => ({ vehicles, expenses, advances, inventory, operations, costings, materials: matList });
+  const ext = () => (window.FZ && FZ.ext) || {};
+  const store = () => ({ vehicles, expenses, advances, inventory, operations, costings, materials: matList, users: usersList,
+    biz: ext().biz ? ext().biz() : [], acct: ext().acct ? ext().acct() : [] });
   const labelOf = (col, id, d) => {
     const m = { ...((store()[col] || []).find(x => x.id === id) || {}), ...(d || {}) };
     if (col === "expenses") return `${catName(m.category)} ${m.amount ?? ""} · ${m.vehicleNo || ""}`.trim();
     if (col === "advances") return `${m.driver || ""} ${m.amount ?? ""}`.trim();
-    return m.number || m.name || m.project || "";
+    if (col === "biz") return `${BIZ_KIND[m.kind] ? BIZ_KIND[m.kind] + ": " : ""}${m.name || m.desc || ""}`.trim();   // شركة / توريد / دفعة / سائق / صيانة
+    if (col === "acct") return [m.project, m.accountant].filter(Boolean).join(" · ");                                  // خزينة المحاسب
+    return m.number || m.name || m.project || m.email || "";
+  };
+  const diffOf = (col, id, d) => {                                      // "الحقل: من القديم إلى الجديد" للحقول التي تغيّرت فعلاً
+    const old = (store()[col] || []).find(x => x.id === id) || {};
+    const skip = new Set(["log", "items", "createdAt", "closedAt", "hlog", "oilLog", "sheets", "incoming", "kind", "result", "inputs", "img", "invoiceUrl", "vehicleNo", "spent", "balance"]);
+    const v = x => x == null || x === "" ? "—" : (ROLES[x] || x);
+    return Object.keys(d).filter(k => !skip.has(k)).map(k => {
+      const o = old[k], n = d[k], nm = FIELD_AR[k] || k;
+      if (o === n || ((o == null || o === "") && (n == null || n === ""))) return "";
+      if (n !== null && typeof n === "object") return nm;
+      return String(n).length > 40 || String(o ?? "").length > 40 ? nm : `${nm}: من ${v(o)} إلى ${v(n)}`;
+    }).filter(Boolean).join(" · ");
   };
   const write = async e => {
     try { await save0("auditlog", { ...e, at: Date.now(), day: today(), user: $("#user-email").textContent || "" }); }
@@ -1294,21 +1467,24 @@ function wrapAudit() {
   };
   S.save = async (col, d, id) => {
     if (col === "auditlog") return save0(col, d, id);
+    const note = auditNote; auditNote = "";
+    checkRole("save", col, d, id);
     const label0 = labelOf(col, id, d);
     let action = id ? "edit" : "add";
     if (col === "vehicles" && d.archived === true) action = "archive";
     else if (col === "vehicles" && d.archived === false) action = "restore";
     else if (col === "advances" && d.status === "closed") action = "settle";
-    const detail = col === "inventory" && d.log && id ? (() => { const l = d.log[d.log.length - 1] || {}; return `${l.t === "out" ? "صرف" : l.t === "in" ? "إضافة" : ""} ${l.q ?? ""} ${l.note || ""}`.trim(); })()
-      : id ? Object.keys(d).filter(k => !["log", "items", "createdAt", "closedAt"].includes(k)).join("، ") : "";
+    const detail = note || (col === "inventory" && d.log && id ? (() => { const l = d.log[d.log.length - 1] || {}; return `${l.t === "out" ? "صرف" : l.t === "in" ? "إضافة" : ""} ${l.q ?? ""} ${l.note || ""}`.trim(); })()
+      : id ? (col === "acct" ? "تعديل في الفترة" : diffOf(col, id, d)) : "");
     const r = await save0(col, d, id);
-    await write({ col, action, docId: id || r, label: label0 || labelOf(col, r, d), detail });
+    await write({ col, action, docId: id || r, label: label0 || labelOf(col, r, d), detail: String(detail).slice(0, 400) });
     return r;
   };
   S.remove = async (col, id) => {
-    const label0 = labelOf(col, id);
+    checkRole("remove", col);
+    const label0 = labelOf(col, id);                                    // اسم العنصر قبل حذفه (شركة/توريد/دفعة/سائق/صيانة/فترة خزينة…)
     await rem0(col, id);
-    await write({ col, action: "delete", docId: id, label: label0, detail: "" });
+    await write({ col, action: "delete", docId: id, label: label0 || `مستند ${id}`, detail: "" });
   };
 }
 
@@ -1754,7 +1930,37 @@ oilForm.onsubmit = e => guarded(e, async f => {
 
 /* ---- الإعدادات: إخفاء الصفحات غير المستخدمة (لا يحذف أي بيانات) ---- */
 const PAGES = { advances: "حسابات السائقين والعهد", inventory: "مخزن قطع الغيار", ops: "التشغيل والمشاريع", costing: "التكلفة والتسعير", quick: "الحاسبة السريعة" };
-const hiddenPages = () => { try { return new Set(JSON.parse(localStorage.getItem("fawzy-hidden-pages") || "[]")); } catch (e) { return new Set(); } };
+/* ---- الصلاحيات: مدير / محاسب / مشرف موقع ----
+   الدور يُقرأ من مجموعة users (معرّف المستند = البريد بحروف صغيرة). القائمة فارغة ⇐ الكل مدير (حتى لا يُقفل أحد خارج النظام).
+   ملاحظة: هذه حماية على مستوى الواجهة والكتابة من التطبيق؛ للحماية الكاملة أضف نفس القواعد في Firestore Rules. */
+const ROLES = { manager: "مدير", accountant: "محاسب", supervisor: "مشرف موقع" };
+const ALL_PAGES = ["dashboard", "vehicles", "readings", "expenses", "advances", "inventory", "ops", "reports", "costing", "quick", "audit", "settings", "biz", "acct", "crew"];
+const SUP_PAGES = ["readings", "expenses", "ops"];                   // مشرف الموقع: العدادات + الوقود + يومية التشغيل فقط
+let userRole = "manager";
+const roleHidden = () => new Set(userRole === "supervisor" ? ALL_PAGES.filter(p => !SUP_PAGES.includes(p)) : userRole === "accountant" ? ["audit", "settings"] : []);
+const myEmail = () => String($("#user-email").textContent || "").trim().toLowerCase();
+function resolveRole() {
+  if (!SETTINGS.enableRoles || modErr.users || !usersList.length) return "manager";           // لا قواعد/لا مستخدمين معرّفين بعد
+  const u = usersList.find(x => String(x.email || x.id).toLowerCase() === myEmail());
+  return u && ROLES[u.role] ? u.role : "supervisor";                  // حساب غير مسجّل ⇐ أقل صلاحية
+}
+function setRole(role) {
+  userRole = ROLES[role] ? role : "supervisor";
+  document.body.dataset.role = userRole;
+  $("#role-badge").textContent = SETTINGS.enableRoles ? ROLES[userRole] : "";
+  $("#role-badge").style.display = SETTINGS.enableRoles ? "" : "none";
+  applyPages();
+  const sel = eForm.elements.category;                                // مشرف الموقع يسجّل الوقود فقط
+  sel.dataset.all ||= sel.innerHTML;
+  sel.innerHTML = userRole === "supervisor" ? '<option value="fuel">وقود</option>' : sel.dataset.all;
+  syncCategory(eForm);
+  const xs = $("#xs-btn"); if (xs) xs.classList.toggle("hidden", userRole === "supervisor");
+  const cur = document.querySelector(".view:not(.hidden)");
+  if (!cur || hiddenPages().has(cur.id.replace(/^view-/, ""))) show(homeView());
+}
+const storedHidden = () => { try { return new Set(JSON.parse(localStorage.getItem("fawzy-hidden-pages") || "[]")); } catch (e) { return new Set(); } };
+const hiddenPages = () => { const s = storedHidden(); roleHidden().forEach(p => s.add(p)); return s; };    // إعدادات المتصفح + قيود الدور
+const homeView = () => ["dashboard", "readings", "expenses", "ops"].find(p => !hiddenPages().has(p)) || "dashboard";
 const pageOff = k => hiddenPages().has(k);
 function applyPages() {
   const h = hiddenPages();
@@ -1764,13 +1970,14 @@ function applyPages() {
   $("#k-stock").closest(".kpi").classList.toggle("hidden", h.has("inventory"));
 }
 function renderSettings() {
-  const h = hiddenPages();
+  renderUsers();
+  const h = storedHidden();
   $("#pg-list").innerHTML = Object.entries(PAGES).map(([k, l]) => `
     <label class="flex items-center gap-3 p-3 rounded-xl bg-slate-50 cursor-pointer"><input type="checkbox" data-pg="${k}" ${h.has(k) ? "" : "checked"} class="w-5 h-5 accent-orange-600"><span class="font-bold">${l}</span></label>`).join("");
 }
 $("#pg-list").addEventListener("change", ev => {
   const c = ev.target.closest("[data-pg]"); if (!c) return;
-  const h = hiddenPages(); c.checked ? h.delete(c.dataset.pg) : h.add(c.dataset.pg);
+  const h = storedHidden(); c.checked ? h.delete(c.dataset.pg) : h.add(c.dataset.pg);
   try { localStorage.setItem("fawzy-hidden-pages", JSON.stringify([...h])); } catch (e) { alert("تعذر حفظ الإعداد في هذا المتصفح."); }
   applyPages(); try { renderNotifs(); } catch (e) { /* لم تُحمَّل البيانات بعد */ }
 });

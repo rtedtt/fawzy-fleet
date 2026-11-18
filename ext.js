@@ -1,5 +1,6 @@
 /* =====================================================
    ext.js – الشركات • خزينة المحاسب (العهدة) • السائقين والصيانة • البحث الشامل
+   تطوير: بلال محمد سليمان | واتساب: 01128079357 | https://wa.me/201128079357
    ملف إضافي فوق app.js: لا يغيّر منطقه ويعتمد على دوالّه.
    مجموعتان جديدتان في Firestore: biz (شركات/توريدات/دفعات/سائقين/صيانة) و acct (فترات خزينة المحاسب)
    ===================================================== */
@@ -7,6 +8,7 @@
 "use strict";
 const LATE_DAYS = 30, STALE_DAYS = 7;
 let biz = [], acct = [], curP = "", curS = "";
+(window.FZ = window.FZ || {}).ext = { biz: () => biz, acct: () => acct };   // يقرؤها wrapAudit لتسجيل اسم البند المحذوف
 const tabs = { biz: "co", crew: "dr" };
 const TABS = { biz: [["co", "الشركات"], ["sp", "التوريدات"], ["pay", "الدفعات"], ["pf", "الأرباح"], ["rp", "تقارير"]], crew: [["dr", "السائقين"], ["ins", "تأمين وفحص"], ["mt", "سجل الصيانة"]] };
 const DEF_SHEETS = ["كشف إعاشة", "كشف مرتبات وسلفيات", "كشف بدلات", "كشف إيجارات شقق الموقع", "كشف مصروفات يومية", "كشف مصروفات نثرية", "كشف مشتريات مخزن", "فواتير ضريبية", "مصاريف خلاطة الخرسانة", "دفعات موردين", "كشف مصاريف موقع"];
@@ -24,6 +26,8 @@ const D = n => I(n, 'type="date"');
 const N = (n, o = "") => I(n, `type="number" min="0" step="any" ${o}`);
 const TB = (head, id) => `<div class="card overflow-x-auto"><table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr>${head.map(h => `<th class="py-2">${h}</th>`).join("")}</tr></thead><tbody id="${id}"></tbody></table></div>`;
 const none = (c, t = "لا توجد بيانات.") => `<tr><td colspan="${c}" class="py-4 text-slate-500">${t}</td></tr>`;
+const editBtn = (a, id) => `<button type="button" data-${a}="${esc(id)}" class="text-orange-600" aria-label="تعديل"><i class="fa-solid fa-pen-to-square"></i></button>`;
+const rowAct = (k, id) => `<div class="flex gap-3">${editBtn(k + "-edit", id)}${delBtn(k + "-del", id)}</div>`;
 const delBtn = (a, id) => `<button type="button" data-${a}="${esc(id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button>`;
 const fd = f => Object.fromEntries(new FormData(f).entries());
 const coName = id => (byId(K("company"), id) || {}).name || "—";
@@ -129,6 +133,7 @@ navBtn("crew", "fa-id-badge", "السائقين والصيانة");
 Object.assign(PAGES, { biz: "الشركات والتوريدات", acct: "خزينة المحاسب (العهدة)", crew: "السائقين والصيانة" });
 Object.assign(NOTIF_TYPES, { late: "مستحقات الشركات", ins: "تأمين / فحص / رخص قيادة" });
 Object.assign(BK_COLS, { biz: "الشركات والسائقين والصيانة", acct: "خزينة المحاسب" });
+try { fillCsvSelect(); } catch (e) { /* قائمة تصدير CSV */ }
 Object.assign(AUD_COLS, { biz: "الشركات والسائقين", acct: "خزينة المحاسب" });
 $("#au-col").innerHTML = `<option value="">كل الأقسام</option>` + Object.entries(AUD_COLS).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
 applyPages();
@@ -171,17 +176,17 @@ function renderBiz() {
     return `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(c.name)}${late ? ` <span class="text-[11px] bg-red-100 text-red-700 rounded-full px-2">متأخرة ${st.age} يوم</span>` : ""}</td><td dir="ltr" class="text-right">${esc(c.phone || "")}</td>
     <td>${c.priceM3 != null ? money(c.priceM3) : "—"}</td><td>${c.priceTrip != null ? money(c.priceTrip) : "—"}</td><td>${money(st.sup)}</td><td>${money(st.paid)}</td>
     <td class="font-extrabold ${st.bal > 0 ? "text-red-600" : "text-green-700"}">${money(st.bal)}</td>
-    <td><div class="flex gap-2 font-bold text-xs">${["xlsx:Excel:text-green-700", "docx:Word:text-blue-700", "pdf:PDF:text-red-700", "print:طباعة:text-slate-700"].map(x => { const [k, l, cl] = x.split(":"); return `<button type="button" data-export="costmt:${k}:${esc(c.id)}" class="${cl}">${l}</button>`; }).join("")}</div></td>
+    <td><div class="flex gap-2 font-bold text-xs"><button type="button" data-co-stmt="${esc(c.id)}" class="text-orange-600">عرض</button>${["xlsx:Excel:text-green-700", "docx:Word:text-blue-700", "pdf:PDF:text-red-700", "print:طباعة:text-slate-700"].map(x => { const [k, l, cl] = x.split(":"); return `<button type="button" data-export="costmt:${k}:${esc(c.id)}" class="${cl}">${l}</button>`; }).join("")}</div></td>
     <td><div class="flex gap-3"><button type="button" data-co-edit="${esc(c.id)}" class="text-orange-600" aria-label="تعديل"><i class="fa-solid fa-pen-to-square"></i></button>${delBtn("co-del", c.id)}</div></td></tr>`;
   }).join("") || none(9, "لا توجد شركات بعد. أضف أول شركة من النموذج.");
   const sp = K("supply").sort(byDate).reverse();
-  $("#sp-body").innerHTML = sp.slice(0, 200).map(x => `<tr class="border-b last:border-0"><td class="py-2">${esc(x.date)}</td><td class="font-bold">${esc(coName(x.companyId))}</td><td>${esc(x.project || "")}</td><td>${esc(x.vehicleNo || "")}</td><td>${fmt(x.qty)} ${esc(unitLabel(x.unit))}</td><td>${money(x.price)}</td><td class="font-bold">${money(x.total)}</td><td>${delBtn("sp-del", x.id)}</td></tr>`).join("") || none(8);
-  $("#pay-body").innerHTML = K("payment").sort(byDate).reverse().slice(0, 200).map(x => `<tr class="border-b last:border-0"><td class="py-2">${esc(x.date)}</td><td class="font-bold">${esc(coName(x.companyId))}</td><td class="text-green-700 font-bold">${money(x.amount)}</td><td>${esc(x.notes || "")}</td><td>${money(coStat(x.companyId).bal)}</td><td>${delBtn("pay-del", x.id)}</td></tr>`).join("") || none(6);
+  $("#sp-body").innerHTML = sp.slice(0, 200).map(x => `<tr class="border-b last:border-0"><td class="py-2">${esc(x.date)}</td><td class="font-bold">${esc(coName(x.companyId))}</td><td>${esc(x.project || "")}</td><td>${esc(x.vehicleNo || "")}</td><td>${fmt(x.qty)} ${esc(unitLabel(x.unit))}</td><td>${money(x.price)}</td><td class="font-bold">${money(x.total)}</td><td>${rowAct("sp", x.id)}</td></tr>`).join("") || none(8);
+  $("#pay-body").innerHTML = K("payment").sort(byDate).reverse().slice(0, 200).map(x => `<tr class="border-b last:border-0"><td class="py-2">${esc(x.date)}</td><td class="font-bold">${esc(coName(x.companyId))}</td><td class="text-green-700 font-bold">${money(x.amount)}</td><td>${esc(x.notes || "")}</td><td>${money(coStat(x.companyId).bal)}</td><td>${rowAct("pay", x.id)}</td></tr>`).join("") || none(6);
   renderPf(); renderRp();
 }
 function profitData() {
   const sp = K("supply");
-  const eq = activeVehicles().map(v => { const rev = sum(sp.filter(x => x.vehicleId === v.id), x => x.total), cost = sum(expenses.filter(e => e.vehicleId === v.id), e => e.amount); return { name: `${v.number} - ${v.type}`, rev, cost, pr: rev - cost }; }).sort((a, b) => b.pr - a.pr);
+  const eq = roiData();
   const m = {}; const g = n => (m[normAr(n) || "_"] ||= { name: n || "بدون مشروع", rev: 0, cost: 0 });
   sp.forEach(x => { g(cleanName(x.project)).rev += +x.total || 0; });
   expenses.forEach(e => { g(cleanName(e.project)).cost += +e.amount || 0; });
@@ -190,17 +195,19 @@ function profitData() {
 }
 function renderPf() {
   const { eq, pj } = profitData();
+  const th = h => `<th>${h}</th>`;
+  const roi = `<div class="card overflow-x-auto"><div class="font-extrabold mb-1">ربحية كل معدة (Equipment ROI)</div><p class="text-xs text-slate-500 mb-2">صافي الربح = إيراد التشغيل (التوريدات المسجلة على المعدة) − (الوقود + قطع الغيار + المصروفات الأخرى + الصيانة)</p>
+    <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة</th>${["الإيراد", "الوقود", "قطع الغيار", "الصيانة", "مصروفات أخرى", "إجمالي التكلفة", "صافي الربح", "الهامش"].map(th).join("")}</tr></thead><tbody>${eq.map(r => `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(r.name)}</td><td>${money(r.rev)}</td><td>${money(r.fuel)}</td><td>${money(r.parts)}</td><td>${money(r.maint)}</td><td>${money(r.other)}</td><td class="font-bold">${money(r.cost)}</td><td class="font-extrabold ${r.net >= 0 ? "text-green-700" : "text-red-600"}">${money(r.net)}</td><td class="${r.margin != null && r.margin < 0 ? "text-red-600" : ""}">${pct(r.margin)}</td></tr>`).join("") || none(9)}</tbody></table></div>`;
   const tbl = (t, rows) => `<div class="card overflow-x-auto"><div class="font-extrabold mb-2">${t}</div><table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">الاسم</th><th>الإيراد</th><th>المصروفات</th><th>الربح / الخسارة</th></tr></thead><tbody>${rows.map(r => `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(r.name)}</td><td>${money(r.rev)}</td><td>${money(r.cost)}</td><td class="font-extrabold ${r.pr >= 0 ? "text-green-700" : "text-red-600"}">${money(r.pr)}</td></tr>`).join("") || none(4)}</tbody></table></div>`;
-  $("#pf-out").innerHTML = `<div class="flex gap-2 text-sm">${exportBtns("xprofit:#")}</div>${tbl("أرباح كل معدة (التوريدات المسجلة عليها − مصروفاتها)", eq)}${tbl("أرباح كل مشروع (التوريدات − مصروفات المعدات)", pj)}<p class="text-xs text-slate-500">الإيراد يُحسب من «التوريدات» ويحتاج تحديد المعدة والمشروع عند التسجيل ليظهر هنا.</p>`;
+  $("#pf-out").innerHTML = `<div class="flex gap-2 text-sm">${exportBtns("xprofit:#")}</div>${roi}${tbl("أرباح كل مشروع (التوريدات − مصروفات المعدات)", pj)}<p class="text-xs text-slate-500">الإيراد يُحسب من «التوريدات» ويحتاج تحديد المعدة والمشروع عند التسجيل ليظهر هنا. إن سجّلت الإصلاح نفسه في «المصروفات» وفي «سجل الصيانة» فسيُحسب مرتين، فاكتفِ بأحدهما.</p>`;
 }
-EXPORTS.xprofit = () => { const { eq, pj } = profitData(), f = r => ({ "الاسم": r.name, "الإيراد": r2(r.rev), "المصروفات": r2(r.cost), "الربح": r2(r.pr) }); return { file: "الأرباح", title: "أرباح المعدات والمشاريع", sections: [{ title: "المعدات", rows: eq.map(f) }, { title: "المشاريع", rows: pj.map(f) }] }; };
+EXPORTS.xprofit = () => { const { eq, pj } = profitData(), f = r => ({ "الاسم": r.name, "الإيراد": r2(r.rev), "المصروفات": r2(r.cost), "الربح": r2(r.pr) }); return { file: "الأرباح", title: "أرباح المعدات والمشاريع", sections: [{ title: "ربحية المعدات", rows: eq.map(roiRow), note: "صافي الربح = توريدات المعدة − (وقود + قطع غيار + مصروفات أخرى + صيانة)" }, { title: "المشاريع", rows: pj.map(f) }] }; };
 EXPORTS.costmt = id => {
-  const c = byId(K("company"), id); if (!c) return; const st = coStat(id);
+  const L = ledger(id), c = L.c; if (!c) return;
   return {
     file: `كشف-حساب-${c.name}`, title: `كشف حساب شركة ${c.name}`, sections: [
-      { title: "الملخص", head: ["البند", "القيمة"], rows: [{ "البند": "إجمالي ما تم توريده", "القيمة": money(st.sup) }, { "البند": "إجمالي المدفوع", "القيمة": money(st.paid) }, { "البند": "المتبقي على الشركة", "القيمة": money(st.bal) }] },
-      { title: "التوريدات", rows: st.s.map(x => ({ "التاريخ": x.date, "المشروع": x.project || "", "المعدة": x.vehicleNo || "", "الكمية": `${fmt(x.qty)} ${unitLabel(x.unit)}`, "السعر": x.price, "الإجمالي": x.total })) },
-      { title: "الدفعات", rows: st.p.map(x => ({ "التاريخ": x.date, "المبلغ": x.amount, "ملاحظات": x.notes || "" })) }], footer: SIG
+      { title: "الملخص", head: ["البند", "القيمة"], rows: [{ "البند": "إجمالي ما تم توريده (مدين)", "القيمة": money(L.dr) }, { "البند": "إجمالي المدفوع (دائن)", "القيمة": money(L.cr) }, { "البند": "الرصيد المتبقي على الشركة", "القيمة": balTxt(L.bal) }] },
+      { title: "كشف الحساب التفصيلي (مرتب زمنياً بالرصيد التراكمي)", head: ["التاريخ", "البيان", "مدين (توريد)", "دائن (دفعة)", "الرصيد التراكمي"], rows: ledgerRows(L) }], footer: SIG
   };
 };
 
@@ -243,7 +250,7 @@ function renderCrew() {
   $("#ins-body").innerHTML = activeVehicles().map(v => `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(v.number)} - ${esc(v.type)}</td><td class="${tone(v.licenseExpiry)}">${v.licenseExpiry ? when(v.licenseExpiry) : "—"}</td>
     ${["insuranceExpiry", "inspectionExpiry"].map(f => `<td><input type="date" data-vf="${f}" data-vid="${esc(v.id)}" value="${esc(v[f] || "")}" class="inp !w-44 !py-1.5"> <span class="text-xs ${tone(v[f])}">${v[f] ? when(v[f]) : ""}</span></td>`).join("")}</tr>`).join("") || none(4);
   const mt = K("maint").sort(byDate).reverse();
-  $("#mt-body").innerHTML = mt.slice(0, 200).map(x => `<tr class="border-b last:border-0"><td class="py-2">${esc(x.date)}</td><td class="font-bold">${esc(x.vehicleNo || "")}</td><td>${esc(x.type)}</td><td>${esc(x.desc)}</td><td>${x.cost ? money(x.cost) : "—"}</td><td>${x.img ? `<a href="${esc(x.img)}" target="_blank" rel="noopener" class="text-blue-700 font-bold">عرض</a>` : ""}</td><td>${delBtn("mt-del", x.id)}</td></tr>`).join("") || none(7);
+  $("#mt-body").innerHTML = mt.slice(0, 200).map(x => `<tr class="border-b last:border-0"><td class="py-2">${esc(x.date)}</td><td class="font-bold">${esc(x.vehicleNo || "")}</td><td>${esc(x.type)}</td><td>${esc(x.desc)}</td><td>${x.cost ? money(x.cost) : "—"}</td><td>${x.img ? `<a href="${esc(x.img)}" target="_blank" rel="noopener" class="text-blue-700 font-bold">عرض</a>` : ""}</td><td>${rowAct("mt", x.id)}</td></tr>`).join("") || none(7);
   const by = {}; mt.forEach(x => { by[x.vehicleNo] = (by[x.vehicleNo] || 0) + (+x.cost || 0); });
   $("#mt-sum").innerHTML = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => kpi("fa-screwdriver-wrench", `صيانة ${esc(k)}`, money(v))).join("");
 }
@@ -326,7 +333,7 @@ function renderTabs(v) {
 function renderAll() {
   const warn = col => modErr[col] === "perm" ? `لا توجد صلاحية لمجموعة «${col}» في Firestore. أضف لها قواعد الصلاحيات (مثل باقي المجموعات) من Firebase Console ← Firestore ← Rules ثم حدّث الصفحة.` : modErr[col] ? `تعذر تحميل بيانات هذه الوحدة (${col}). تأكد من الاتصال ثم حدّث الصفحة.` : "";
   [["biz", "biz"], ["crew", "biz"], ["acct", "acct"]].forEach(([v, c]) => { const el = $(`#view-${v} .xwarn`), t = warn(c); el.textContent = t; el.classList.toggle("hidden", !t); });
-  [fillSelects, () => { renderTabs("biz"); renderTabs("crew"); }, renderBiz, renderCrew, renderAcct].forEach(fn => { try { fn(); } catch (e) { console.error(fn.name, e); } });
+  [fillSelects, () => { renderTabs("biz"); renderTabs("crew"); }, renderBiz, renderCrew, renderAcct, renderRoiCard].forEach(fn => { try { fn(); } catch (e) { console.error(fn.name, e); } });
 }
 
 /* ---------- النماذج ---------- */
@@ -419,12 +426,137 @@ $("#ac-main").addEventListener("change", async ev => {                 // است
   ev.target.value = "";
 });
 
+/* ---------- كشف حساب الشركة: توريدات (مدين) ودفعات (دائن) بالترتيب الزمني + الرصيد التراكمي ---------- */
+function ledger(id) {
+  const c = byId(K("company"), id), st = coStat(id);
+  const rows = [
+    ...st.s.map(x => ({ t: "s", d: x.date || "", at: x.createdAt || 0, desc: `توريد ${fmt(x.qty)} ${unitLabel(x.unit)}${x.project ? " — " + x.project : ""}${x.vehicleNo ? ` (${x.vehicleNo})` : ""}`, dr: +x.total || 0, cr: 0 })),
+    ...st.p.map(x => ({ t: "p", d: x.date || "", at: x.createdAt || 0, desc: "دفعة" + (x.notes ? " — " + x.notes : ""), dr: 0, cr: +x.amount || 0 }))
+  ].sort((a, b) => a.d.localeCompare(b.d) || a.at - b.at || (a.t === "s" ? -1 : 1));      // في نفس اليوم: التوريد قبل الدفعة
+  let bal = 0; rows.forEach(r => { bal += r.dr - r.cr; r.bal = r2(bal); });
+  return { c, rows, dr: st.sup, cr: st.paid, bal: st.bal };
+}
+const balTxt = b => b > 0 ? `${money(b)} (مدين)` : b < 0 ? `${money(-b)} (دائن)` : money(0);
+const ledgerRows = L => [...L.rows.map(r => ({ "التاريخ": r.d, "البيان": r.desc, "مدين (توريد)": r.dr ? money(r.dr) : "", "دائن (دفعة)": r.cr ? money(r.cr) : "", "الرصيد التراكمي": balTxt(r.bal) })),
+  { "التاريخ": "", "البيان": "الإجمالي", "مدين (توريد)": money(L.dr), "دائن (دفعة)": money(L.cr), "الرصيد التراكمي": balTxt(L.bal) }];
+const stm = document.createElement("div");
+stm.id = "co-stmt-modal"; stm.className = "hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto no-print";
+stm.setAttribute("role", "dialog"); stm.setAttribute("aria-modal", "true"); stm.setAttribute("aria-labelledby", "stmt-title");
+stm.innerHTML = `<div class="card max-w-3xl mx-auto my-6 space-y-3">
+  <div class="flex items-start justify-between gap-2"><h3 id="stmt-title" class="text-lg font-extrabold"></h3><button type="button" id="stmt-x" class="text-2xl text-slate-500" aria-label="إغلاق">&times;</button></div>
+  <div id="stmt-sum" class="grid sm:grid-cols-3 gap-3"></div>
+  <div class="overflow-x-auto"><table class="w-full text-sm text-right whitespace-nowrap"><thead><tr><th>التاريخ</th><th>البيان</th><th>مدين (توريد)</th><th>دائن (دفعة)</th><th>الرصيد التراكمي</th></tr></thead><tbody id="stmt-body"></tbody></table></div>
+  <div class="flex flex-wrap gap-2"><button type="button" id="stmt-print" class="btn"><i class="fa-solid fa-print ml-2"></i>طباعة A4</button><button type="button" id="stmt-xlsx" class="btn-dark"><i class="fa-solid fa-file-excel ml-2"></i>Excel</button><button type="button" id="stmt-close" class="px-5 py-2.5 rounded-xl bg-slate-200 font-bold">إغلاق</button></div></div>`;
+document.body.appendChild(stm);
+let stmId = "";
+const closeStmt = () => stm.classList.add("hidden");
+function openStmt(id) {
+  const L = ledger(id); if (!L.c) return; stmId = id;
+  $("#stmt-title").textContent = `كشف حساب شركة ${L.c.name}`;
+  $("#stmt-sum").innerHTML = kpi("fa-truck-ramp-box", "إجمالي التوريدات (مدين)", money(L.dr)) + kpi("fa-money-bill-wave", "إجمالي الدفعات (دائن)", money(L.cr)) + kpi("fa-scale-balanced", "الرصيد المتبقي", money(L.bal), L.bal > 0);
+  $("#stmt-body").innerHTML = L.rows.map(r => `<tr class="border-b last:border-0"><td class="py-2">${esc(r.d)}</td><td>${esc(r.desc)}</td><td class="${r.dr ? "font-bold" : "text-slate-300"}">${r.dr ? money(r.dr) : "—"}</td><td class="${r.cr ? "text-green-700 font-bold" : "text-slate-300"}">${r.cr ? money(r.cr) : "—"}</td><td class="font-extrabold ${r.bal > 0 ? "text-red-600" : "text-green-700"}">${esc(balTxt(r.bal))}</td></tr>`).join("") || none(5, "لا توجد حركات لهذه الشركة.");
+  stm.classList.remove("hidden"); $("#stmt-close").focus();
+}
+$("#stmt-x").onclick = $("#stmt-close").onclick = closeStmt;
+stm.onmousedown = ev => { if (ev.target === stm) closeStmt(); };
+$("#stmt-print").onclick = () => { const d = EXPORTS.costmt(stmId); if (d) printDoc(d); };
+$("#stmt-xlsx").onclick = () => { const d = EXPORTS.costmt(stmId); if (d) xlsxDownload(`${d.file}-${today()}.xlsx`, d.sections); };
+
+/* ---------- تعديل توريد / دفعة / سجل صيانة (نافذة واحدة) ---------- */
+const xe = document.createElement("div");
+xe.id = "x-edit-modal"; xe.className = "hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto no-print";
+xe.setAttribute("role", "dialog"); xe.setAttribute("aria-modal", "true"); xe.setAttribute("aria-labelledby", "x-edit-title");
+xe.innerHTML = `<form id="x-edit-form" class="card max-w-xl mx-auto my-8 space-y-3"><h3 id="x-edit-title" class="text-lg font-extrabold"></h3>
+  <input type="hidden" name="id"><input type="hidden" name="kind"><div id="x-edit-fields" class="grid sm:grid-cols-2 gap-3"></div>
+  <p class="text-xs text-slate-500">يُسجَّل التعديل في «السجل» بقيمة كل حقل قبل التغيير وبعده.</p>
+  <div class="flex gap-2"><button class="btn flex-1">حفظ التعديلات</button><button type="button" id="x-edit-cancel" class="px-5 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div></form>`;
+document.body.appendChild(xe);
+const xf = $("#x-edit-form"), closeXe = () => xe.classList.add("hidden");
+$("#x-edit-cancel").onclick = closeXe; xe.onmousedown = ev => { if (ev.target === xe) closeXe(); };
+document.addEventListener("keydown", ev => { if (ev.key === "Escape") { closeXe(); closeStmt(); } });
+const vehOpts = cur => `<option value="">— بدون —</option>` + vehicles.filter(v => !v.archived || v.id === cur).map(v => `<option value="${esc(v.id)}">${esc(v.number)} - ${esc(v.type)}</option>`).join("");
+const unitOpts = `<option value="m3">م³ خرسانة</option><option value="trips">رحلة / نقلة</option>`;
+const XE = {
+  supply: { title: "تعديل توريد", fields: x => F("الشركة", `<select name="companyId" class="inp" required>${opts(K("company"), c => c.id, c => c.name)}</select>`) + F("التاريخ", D("date")) + F("نوع التسعير", `<select name="unit" class="inp">${unitOpts}</select>`) + F("المعدة (اختياري)", `<select name="vehicleId" class="inp">${vehOpts(x.vehicleId)}</select>`) + F("المشروع", I("project", 'list="dl-xproj"')) + F("الكمية", N("qty", "required")) + F("السعر", N("price", "required")) + F("ملاحظات", I("notes")) },
+  payment: { title: "تعديل دفعة", fields: () => F("الشركة", `<select name="companyId" class="inp" required>${opts(K("company"), c => c.id, c => c.name)}</select>`) + F("التاريخ", D("date")) + F("المبلغ", N("amount", "required")) + F("ملاحظات", I("notes")) },
+  maint: { title: "تعديل سجل صيانة", fields: x => F("المعدة", `<select name="vehicleId" class="inp" required>${vehOpts(x.vehicleId).replace('<option value="">— بدون —</option>', "")}</select>`) + F("التاريخ", D("date")) + F("النوع", `<select name="type" class="inp"><option>عطل</option><option>إصلاح</option><option>قطعة غيار</option><option>أخرى</option></select>`) + F("التكلفة", N("cost")) + F("الوصف", I("desc", "required"), "sm:col-span-2") + F("استبدال الصورة / الفاتورة (اختياري)", `<input name="img" type="file" accept="image/*" class="inp">`, "sm:col-span-2") }
+};
+function openXEdit(kind, id) {
+  const x = byId(biz, id); if (!x || !XE[kind]) return;
+  xf.id.value = id; xf.kind.value = kind;
+  $("#x-edit-title").innerHTML = `<i class="fa-solid fa-pen text-orange-600 ml-2"></i>${XE[kind].title}`;
+  $("#x-edit-fields").innerHTML = XE[kind].fields(x);
+  ["companyId", "date", "unit", "vehicleId", "project", "qty", "price", "notes", "amount", "type", "cost", "desc"].forEach(k => { const el = xf.elements[k]; if (el && x[k] != null) el.value = x[k]; });
+  xe.classList.remove("hidden"); xf.elements[kind === "maint" ? "vehicleId" : "companyId"].focus();
+}
+const chgx = rows => rows.filter(([, o, n]) => String(o ?? "") !== String(n ?? "")).map(([l, o, n]) => `${l}: من ${o || "—"} إلى ${n || "—"}`).join(" · ");
+xf.addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const f = fd(xf), old = byId(biz, f.id); if (!old) return alert("السجل غير موجود.");
+  const btn = xf.querySelector("button.btn"); btn.disabled = true;
+  try {
+    let d, note = "";
+    if (f.kind === "supply") {
+      const c = byId(K("company"), f.companyId), v = byId(vehicles, f.vehicleId), qty = toNum(f.qty), price = toNum(f.price);
+      if (!c || !(qty > 0) || price == null || price < 0) return alert("اختر الشركة واكتب الكمية والسعر.");
+      const total = r2(qty * price), project = smartName(f.project, knownProjects()), notes = cleanName(f.notes);
+      d = { name: `${c.name} ${total}`, companyId: c.id, date: f.date || today(), project, vehicleId: v ? v.id : "", vehicleNo: v ? v.number : "", unit: f.unit, qty, price, total, notes };
+      note = chgx([["الشركة", coName(old.companyId), c.name], ["التاريخ", old.date, d.date], ["الكمية", old.qty, qty], ["السعر", old.price, price], ["الإجمالي", old.total, total], ["النوع", unitLabel(old.unit), unitLabel(f.unit)], ["المعدة", old.vehicleNo, d.vehicleNo], ["المشروع", old.project, project], ["ملاحظات", old.notes, notes]]);
+    } else if (f.kind === "payment") {
+      const c = byId(K("company"), f.companyId), amount = toNum(f.amount); if (!c || !(amount > 0)) return alert("اختر الشركة واكتب مبلغاً صحيحاً.");
+      const notes = cleanName(f.notes);
+      d = { name: `${c.name} ${amount}`, companyId: c.id, date: f.date || today(), amount, notes };
+      note = chgx([["الشركة", coName(old.companyId), c.name], ["التاريخ", old.date, d.date], ["المبلغ", old.amount, amount], ["ملاحظات", old.notes, notes]]);
+    } else {
+      const v = byId(vehicles, f.vehicleId), desc = cleanName(f.desc); if (!v || !desc) return alert("اختر المعدة واكتب الوصف.");
+      const cost = toNum(f.cost) || 0; d = { name: `${v.number} ${desc}`, vehicleId: v.id, vehicleNo: v.number, date: f.date || today(), type: f.type, desc, cost };
+      if (f.img && f.img.size) { d.img = await upl(f.img); }
+      note = chgx([["المعدة", old.vehicleNo, v.number], ["التاريخ", old.date, d.date], ["النوع", old.type, f.type], ["الوصف", old.desc, desc], ["التكلفة", old.cost, cost]]) + (d.img ? " · تم استبدال الصورة" : "");
+    }
+    if (!note) { closeXe(); return; }                                       // لا تغيير فعلي
+    auditNote = "تعديل " + note;
+    const r = await sv("biz", d, old.id); if (r !== undefined) closeXe();
+  } catch (err) { dbErr(err); }
+  btn.disabled = false;
+});
+
+/* ---------- ربحية المعدات (Equipment ROI) ----------
+   صافي الربح = إيرادات التشغيل (توريدات المعدة) − (وقود + قطع غيار + مصروفات أخرى + سجل الصيانة).
+   قطع المخزن المصروفة على المعدة تُسجَّل أصلاً كمصروف «قطع غيار» فلا تُحسب مرتين. */
+function roiData() {
+  const sp = K("supply"), mt = K("maint");
+  return activeVehicles().map(v => {
+    const ex = expenses.filter(e => e.vehicleId === v.id);
+    const fuel = sum(ex.filter(e => e.category === "fuel"), e => e.amount), parts = sum(ex.filter(e => e.category === "parts"), e => e.amount);
+    const other = sum(ex, e => e.amount) - fuel - parts, maint = sum(mt.filter(x => x.vehicleId === v.id), x => x.cost);
+    const rev = sum(sp.filter(x => x.vehicleId === v.id), x => x.total), cost = fuel + parts + other + maint, net = rev - cost;
+    return { id: v.id, name: `${v.number} - ${v.type}`, rev, fuel, parts, maint, other, cost, net, margin: rev > 0 ? net / rev * 100 : null };
+  }).sort((a, b) => b.net - a.net);
+}
+const pct = m => m == null ? "—" : `${Math.round(m)}%`;
+const roiRow = r => ({ "المعدة": r.name, "الإيراد": r2(r.rev), "الوقود": r2(r.fuel), "قطع الغيار": r2(r.parts), "الصيانة": r2(r.maint), "مصروفات أخرى": r2(r.other), "إجمالي التكلفة": r2(r.cost), "صافي الربح": r2(r.net), "الهامش": pct(r.margin) });
+function renderRoiCard() {
+  let card = $("#roi-card");
+  if (!card) { card = document.createElement("div"); card.id = "roi-card"; card.className = "card"; $("#view-dashboard").appendChild(card); }
+  if (pageOff("biz")) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  const rows = roiData().filter(r => r.rev || r.cost);
+  card.innerHTML = `<div class="flex items-center justify-between flex-wrap gap-2 mb-3"><h3 class="font-extrabold"><i class="fa-solid fa-sack-dollar text-orange-600 ml-2"></i>ربحية المعدات (صافي الربح)</h3><button type="button" data-go-biz="pf" class="text-xs font-bold text-orange-600">التفاصيل الكاملة</button></div>`
+    + (rows.length ? `<div class="space-y-2">${rows.slice(0, 6).map(r => `<div class="flex items-center gap-2 text-sm"><b class="min-w-[7rem]">${esc(r.name)}</b><span class="text-xs text-slate-500 flex-1">إيراد ${money(r.rev)} · تكلفة ${money(r.cost)}</span><span class="font-extrabold ${r.net < 0 ? "text-red-600" : "text-green-700"}">${money(r.net)}</span></div>`).join("")}</div>`
+      : `<p class="text-sm text-slate-500">لا توجد توريدات أو مصروفات مسجلة على المعدات بعد. اختر المعدة عند تسجيل التوريد ليظهر إيرادها هنا.</p>`);
+}
+document.addEventListener("click", ev => { const b = ev.target.closest("[data-go-biz]"); if (b) { tabs.biz = b.dataset.goBiz; show("biz"); renderTabs("biz"); } });
+
 /* ---------- النقرات ---------- */
 document.addEventListener("click", async ev => {
   const t = ev.target, q = s => t.closest(s); let b;
   if ((b = q("[data-xt]"))) { const [v, k] = b.dataset.xt.split(":"); tabs[v] = k; renderTabs(v); return; }
   if ((b = q("[data-co-edit]"))) { const c = byId(K("company"), b.dataset.coEdit), f = $("#co-form"); if (!c) return; f.cid.value = c.id; f.name.value = c.name; f.phone.value = c.phone || ""; f.priceM3.value = c.priceM3 ?? ""; f.priceTrip.value = c.priceTrip ?? ""; f.notes.value = c.notes || ""; $("#co-cancel").classList.remove("hidden"); f.scrollIntoView({ behavior: "smooth" }); return; }
   if ((b = q("[data-co-del]"))) { const c = byId(K("company"), b.dataset.coDel), st = c && coStat(c.id); if (!c) return; if (st.s.length || st.p.length) return alert("للشركة توريدات أو دفعات مسجلة. احذفها أولاً أو أبقِ الشركة."); if (confirm(`حذف الشركة «${c.name}»؟`)) rm("biz", c.id); return; }
+  if ((b = q("[data-co-stmt]"))) { openStmt(b.dataset.coStmt); return; }
+  if ((b = q("[data-sp-edit]"))) { openXEdit("supply", b.dataset.spEdit); return; }
+  if ((b = q("[data-pay-edit]"))) { openXEdit("payment", b.dataset.payEdit); return; }
+  if ((b = q("[data-mt-edit]"))) { openXEdit("maint", b.dataset.mtEdit); return; }
   if ((b = q("[data-sp-del]"))) { if (confirm("حذف هذا التوريد؟")) rm("biz", b.dataset.spDel); return; }
   if ((b = q("[data-pay-del]"))) { if (confirm("حذف هذه الدفعة؟")) rm("biz", b.dataset.payDel); return; }
   if ((b = q("[data-mt-del]"))) { if (confirm("حذف هذا السجل؟")) rm("biz", b.dataset.mtDel); return; }

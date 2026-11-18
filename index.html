@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- تطوير وبرمجة: بلال محمد سليمان | واتساب: 01128079357 | https://wa.me/201128079357 -->
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -56,6 +57,20 @@ body .vban{display:grid;place-items:center;height:7.5rem;margin:-.25rem -.25rem 
 body .vico{width:2.75rem;height:2.75rem;border-radius:.75rem;display:grid;place-items:center;font-size:1.25rem;background:#fff1e6;color:var(--orange);flex:none}
 @media (prefers-reduced-motion:reduce){body .kpi,body #login-btn{transition:none}body .kpi:hover,body #login-btn:hover{transform:none}}
 @media print{body table thead{background:#e2e8f0!important;color:#000!important}body table tbody tr:nth-child(even){background:#fff}}
+/* ===== بصمة المطور + باركود vCard + الصلاحيات + شريط التنبيهات ===== */
+body .dev-qr-btn{width:2.5rem;height:2.5rem;flex:none;border-radius:.6rem;padding:2px;background:#fff;border:1px solid #cbd5e1;box-shadow:0 1px 3px rgba(30,58,95,.2);transition:transform .2s,box-shadow .2s;margin-inline-start:.5rem}
+body .dev-qr-btn:hover,body .dev-qr-btn:focus-visible{transform:scale(1.08);box-shadow:0 4px 10px rgba(232,93,4,.35);outline:2px solid var(--orange)}
+body .dev-qr-btn svg{display:block;width:100%;height:100%;border-radius:.45rem}
+body .dev-qr-card{margin:12vh auto;background:rgba(255,255,255,.96);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border-radius:1.5rem;border-top:8px solid var(--orange);padding:1.25rem;width:min(92vw,22rem);text-align:center;box-shadow:0 20px 50px rgba(0,0,0,.35);color:var(--navy)}
+body .dev-qr-big{width:min(72vw,15rem);margin:0 auto;border-radius:1rem;box-shadow:0 0 0 1px #e2e8f0}body .dev-qr-big svg{display:block;width:100%;height:auto;border-radius:1rem}
+body #role-badge{font-size:.7rem;font-weight:800;border-radius:9999px;padding:.15rem .6rem;background:#fff1e6;color:var(--orange-d);border:1px solid #fed7aa;white-space:nowrap}
+body .dev-sign{font-size:.72rem;line-height:1.5;text-align:center;color:#94a3b8}
+body .dev-sign b{color:#ff9a4d}body .dev-sign a{color:#86efac;font-weight:700;text-decoration:none}body .dev-sign a:hover{text-decoration:underline}
+body #login .dev-sign{color:#e2e8f0;margin-top:1rem;text-shadow:0 1px 3px rgba(0,0,0,.5)}body #login .dev-sign b{color:#ffb780}body #login .dev-sign a{color:#bbf7d0}
+body[data-role="supervisor"] .adm-only{display:none!important}
+@media (max-width:640px){body #login{background:linear-gradient(rgba(30,58,95,.78),rgba(22,48,79,.92)),url(login-bg-m.jpg) center/cover no-repeat,#1e3a5f}}
+.print-dev{display:none}
+@media print{.print-dev{display:block!important;position:fixed;bottom:0;right:0;left:0;text-align:center;font-size:10px;color:#475569;border-top:1px solid #cbd5e1;padding:3px 0;background:#fff}main{padding-bottom:24px!important}#dev-qr-btn,#dev-qr-modal{display:none!important}}
 </style>
 <style type="text/tailwindcss">
 body{font-family:Cairo,sans-serif}
@@ -81,6 +96,7 @@ body{font-family:Cairo,sans-serif}
 
 <!-- ============ شاشة تسجيل الدخول ============ -->
 <section id="login" class="min-h-screen grid place-items-center bg-slate-900 p-4">
+  <div class="w-full max-w-sm">
   <form id="login-form" onsubmit="return false" class="w-full max-w-sm bg-white rounded-3xl p-8 shadow-2xl border-t-8 border-amber-500">
     <div class="flex flex-col items-center text-center mb-6">
       <img src="452624.jpg" alt="شعار شركة فوزي عبده" class="w-28 h-28 object-contain mb-3" onerror="this.classList.add('hidden')">
@@ -96,6 +112,8 @@ body{font-family:Cairo,sans-serif}
     <button type="button" id="login-btn" class="btn w-full">دخول</button>
     <p id="demo-note" class="hidden mt-4 text-xs bg-amber-50 text-amber-800 rounded-lg p-3">وضع تجريبي: لم تُضف مفاتيح Firebase بعد. ادخل بأي بريد وكلمة مرور، والبيانات تُحذف عند تحديث الصفحة.</p>
   </form>
+  <div class="dev-sign"><i class="fa-solid fa-code"></i> تطوير وبرمجة: <b>بلال محمد سليمان</b><br><a href="https://wa.me/201128079357" target="_blank" rel="noopener" dir="ltr"><i class="fa-brands fa-whatsapp"></i> 01128079357</a></div>
+  </div>
 </section>
 
 <!-- ============ التطبيق ============ -->
@@ -124,6 +142,7 @@ body{font-family:Cairo,sans-serif}
     </nav>
     <button id="install-btn" type="button" class="hidden nav-btn"><i class="fa-solid fa-download w-5"></i>تثبيت التطبيق</button>
     <button id="logout" class="nav-btn"><i class="fa-solid fa-right-from-bracket w-5"></i>تسجيل الخروج</button>
+    <div class="dev-sign mt-3 pt-3 border-t border-white/10">تطوير: <b>بلال محمد سليمان</b><br><a href="https://wa.me/201128079357" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp ml-1"></i>دعم فني عبر واتساب</a></div>
   </aside>
 
   <div class="md:mr-64 min-h-screen">
@@ -135,12 +154,14 @@ body{font-family:Cairo,sans-serif}
       </div>
       <button type="button" id="print-page" class="text-sm font-bold text-slate-600"><i class="fa-solid fa-print ml-1"></i><span class="hidden sm:inline">طباعة الصفحة</span></button>
       <span id="user-email" class="hidden sm:block text-sm text-slate-500" dir="ltr"></span>
+      <span id="role-badge" class="hidden sm:inline"></span>
     </header>
 
     <main class="p-4 md:p-6 max-w-6xl mx-auto">
 
       <!-- الرئيسية -->
       <div id="view-dashboard" class="view space-y-5">
+        <div id="alert-strip" aria-live="polite"></div>
         <div class="flex items-end justify-between flex-wrap gap-2">
           <h2 class="text-xl font-extrabold">الرئيسية</h2>
           <div class="flex gap-2 text-sm"><button type="button" data-export="dashboard:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="dashboard:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button><button type="button" data-export="dashboard:docx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-word ml-1"></i>Word</button><button type="button" data-export="dashboard:print" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-print ml-1"></i>طباعة</button></div><span id="dash-month" class="text-sm text-slate-500"></span>
@@ -224,6 +245,7 @@ body{font-family:Cairo,sans-serif}
             <select name="type" class="inp">
               <option value="خلاطة">خلاطة</option>
               <option value="لودر">لودر</option>
+              <option value="قلاب">قلاب</option>
               <option value="مضخة">مضخة</option>
               <option value="other">أخرى</option>
             </select>
@@ -556,6 +578,17 @@ body{font-family:Cairo,sans-serif}
           <p class="text-sm text-slate-500">أوقف الصفحات التي لا تستخدمها فتختفي من القائمة والرئيسية والتنبيهات. لا يُحذف أي شيء من بياناتك، وتقدر ترجعها في أي وقت. الإعداد خاص بهذا المتصفح.</p>
           <div id="pg-list" class="grid sm:grid-cols-2 gap-2"></div>
         </div>
+        <div id="users-card" class="card space-y-3 hidden">
+          <div class="font-extrabold"><i class="fa-solid fa-user-shield text-orange-600 ml-2"></i>المستخدمون والصلاحيات</div>
+          <p class="text-sm text-slate-500"><b>مدير:</b> كل شيء · <b>محاسب:</b> كل شيء عدا السجل والإعدادات · <b>مشرف موقع:</b> تسجيل ساعات التشغيل والوقود ويومية التشغيل فقط، بدون الخزينة أو الحذف أو التعديل. لو لم تُعرَّف أدوار يُعامل الجميع كمدير. أنشئ الحساب أولاً من Firebase Authentication ثم عيّن دوره هنا.</p>
+          <p id="users-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+          <form id="user-form" class="grid sm:grid-cols-3 gap-3 items-end">
+            <div class="sm:col-span-1"><label class="lbl">البريد الإلكتروني</label><input name="email" type="email" dir="ltr" class="inp" required></div>
+            <div><label class="lbl">الدور</label><select name="role" class="inp"><option value="supervisor">مشرف موقع</option><option value="accountant">محاسب</option><option value="manager">مدير</option></select></div>
+            <button class="btn">حفظ المستخدم</button>
+          </form>
+          <div class="overflow-x-auto"><table class="w-full text-sm text-right"><thead class="text-slate-500 border-b"><tr><th class="py-2">البريد</th><th>الدور</th><th></th></tr></thead><tbody id="users-body"></tbody></table></div>
+        </div>
         <div class="card text-sm text-slate-600">صفحتا «الإدارة والمعدات والمصروفات والتقارير والعدادات» أساسية ولا يمكن إخفاؤها. النسخة الاحتياطية في صفحة «السجل والنسخ الاحتياطي» <button type="button" data-go="audit" class="font-bold text-orange-600">افتحها</button>.</div>
       </div>
 
@@ -565,7 +598,8 @@ body{font-family:Cairo,sans-serif}
         <div class="card space-y-3">
           <div class="font-extrabold"><i class="fa-solid fa-database text-orange-600 ml-2"></i>نسخة احتياطية بضغطة واحدة</div>
           <p class="text-sm text-slate-500">تحمّل كل بيانات النظام (المعدات، المصروفات، العهد، المخزن، التشغيل، التكلفة، السجل). نسخة JSON للحفظ، وExcel شامل للاطلاع. الاستعادة غير متاحة من داخل النظام.</p>
-          <div class="flex gap-2 flex-wrap"><button type="button" id="bk-json" class="btn"><i class="fa-solid fa-file-code ml-2"></i>نسخة JSON</button><button type="button" id="bk-xlsx" class="btn-dark"><i class="fa-solid fa-file-excel ml-2"></i>Excel شامل</button></div>
+          <div class="flex gap-2 flex-wrap"><button type="button" id="bk-json" class="btn"><i class="fa-solid fa-file-code ml-2"></i>نسخة JSON</button><button type="button" id="bk-xlsx" class="btn-dark"><i class="fa-solid fa-file-excel ml-2"></i>Excel شامل</button>
+          <span class="inline-flex gap-2 items-center"><select id="bk-csv-col" class="inp !w-auto !py-2" aria-label="الجدول"></select><button type="button" id="bk-csv" class="btn-dark"><i class="fa-solid fa-file-csv ml-2"></i>تصدير CSV</button></span></div>
         </div>
         <p id="au-warn" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
         <div class="card grid sm:grid-cols-6 gap-3 items-end">
@@ -587,6 +621,21 @@ body{font-family:Cairo,sans-serif}
 
     </main>
   </div>
+</div>
+
+<!-- ============ نافذة تعديل عهدة / بند ============ -->
+<div id="adv-edit-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="adv-edit-title">
+  <form id="adv-edit-form" class="card max-w-md mx-auto my-12 grid grid-cols-2 gap-3">
+    <h3 id="adv-edit-title" class="col-span-2 text-lg font-extrabold"></h3>
+    <input type="hidden" name="aid"><input type="hidden" name="iid">
+    <div data-ae="adv" class="col-span-2"><label class="lbl">اسم السائق / المستلم</label><input name="driver" class="inp" list="dl-drivers" autocomplete="off"></div>
+    <div data-ae="item" class="col-span-2 hidden"><label class="lbl">نوع المصروف</label><input name="type" class="inp" list="dl-adv-types" autocomplete="off"></div>
+    <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
+    <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+    <div class="col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+    <p class="col-span-2 text-xs text-slate-500">يُسجَّل التعديل في «السجل» بقيمة كل حقل قبل التغيير وبعده.</p>
+    <div class="col-span-2 flex gap-2"><button class="btn flex-1">حفظ التعديل</button><button type="button" id="adv-edit-cancel" class="px-5 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+  </form>
 </div>
 
 <!-- ============ نافذة أرشفة معدة ============ -->
@@ -675,7 +724,10 @@ body{font-family:Cairo,sans-serif}
 <datalist id="dl-units"></datalist>
 <datalist id="dl-projects"></datalist>
 
-<script src="app.js?v=13"></script>
-<script src="ext.js?v=13"></script>
+<div class="print-dev">تطوير النظام: بلال محمد سليمان · واتساب 01128079357</div>
+
+<script src="app.js?v=14"></script>
+<script src="qr.js?v=14"></script>
+<script src="ext.js?v=14"></script>
 </body>
 </html>
