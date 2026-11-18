@@ -81,6 +81,37 @@ body .bdg{display:inline-block;font-size:.7rem;font-weight:800;border-radius:999
 body .bdg-g{background:#dcfce7;color:#166534}body .bdg-o{background:#ffedd5;color:#9a3412}body .bdg-r{background:#fee2e2;color:#991b1b}body .bdg-s{background:#e2e8f0;color:#334155}
 .print-dev{display:none}
 @media print{.print-dev{display:block!important;position:fixed;bottom:0;right:0;left:0;text-align:center;font-size:10px;color:#475569;border-top:1px solid #cbd5e1;padding:3px 0;background:#fff}main{padding-bottom:24px!important}#dev-qr-btn,#dev-qr-modal{display:none!important}}
+
+/* ===== التحليل البصري (viz.js) ===== */
+body .vz-dwrap{display:grid;gap:1rem;align-items:center}@media(min-width:640px){body .vz-dwrap{grid-template-columns:12rem 1fr}}
+body .vz-donut{position:relative;width:11.5rem;max-width:100%;margin:0 auto}body .vz-donut svg{display:block;width:100%;transform:rotate(0deg)}
+body .vz-center{position:absolute;inset:0;display:grid;place-content:center;text-align:center;pointer-events:none}body .vz-center b{font-size:1.5rem;font-weight:900;color:var(--navy);line-height:1.1}body .vz-center span{font-size:.7rem;color:#64748b}
+body .vz-seg{stroke-dasharray:0 100;stroke-dashoffset:var(--o);transition:stroke-dasharray .9s cubic-bezier(.2,.7,.2,1),stroke-width .2s,opacity .2s;cursor:pointer;outline:none}
+body .vz-on .vz-seg{stroke-dasharray:var(--d) var(--r)}body .vz-seg:focus-visible{stroke-width:8}
+body .vz-legend{display:grid;gap:.35rem}
+body .vz-lg{display:flex;align-items:center;gap:.5rem;font-size:.85rem;padding:.4rem .6rem;border-radius:.7rem;background:#f8fafc;border:1px solid transparent;text-align:right;transition:background .2s,border-color .2s}
+body .vz-lg i,body .vz-key i,body .vz-dot{width:.7rem;height:.7rem;border-radius:9999px;display:inline-block;flex:none}
+body .vz-lg span{flex:1}body .vz-lg em{font-style:normal;color:#64748b;width:2.6rem;text-align:left;font-size:.75rem}
+body .vz-lg.on,body .vz-lg:hover{background:#fff7ed;border-color:#fdba74}
+body .vz-detail{margin-top:.6rem;background:#f1f5f9;border-radius:.8rem;padding:.6rem .8rem;font-size:.85rem;color:#334155;min-height:2.6rem}
+body .vz-key{display:flex;flex-wrap:wrap;gap:.4rem .9rem;font-size:.75rem;color:#475569;margin-top:.5rem}body .vz-key span{display:inline-flex;align-items:center;gap:.3rem}
+body .vz-bg{cursor:pointer;outline:none}body .vz-bg:hover rect.vz-bar,body .vz-bg:focus-visible rect.vz-bar{filter:brightness(1.12)}
+body .vz-bar{transform-box:fill-box;transform-origin:right center;transform:scaleX(0);transition:transform .8s cubic-bezier(.2,.7,.2,1)}body .vz-on .vz-bar{transform:scaleX(1)}
+body .vz-ln{stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset 1.1s ease}body .vz-on .vz-ln{stroke-dashoffset:0}
+body .vz-dots{opacity:0;transition:opacity .4s ease .9s}body .vz-on .vz-dots{opacity:1}body .vz-dots circle[tabindex]{cursor:pointer;outline:none}
+body .vz-empty{padding:1.2rem;text-align:center;color:#64748b;font-size:.9rem;background:#f8fafc;border-radius:.8rem;border:1px dashed #cbd5e1}
+body .vz-tabs{display:flex;gap:.4rem;overflow-x:auto;margin-top:.9rem;padding-bottom:.2rem}
+body .vz-tabs button{white-space:nowrap;padding:.4rem 1rem;border-radius:9999px;font-weight:700;font-size:.85rem;background:#f1f5f9;color:#334155;transition:background .2s,color .2s}
+body .vz-tabs button.on{background:var(--navy);color:#fff}
+body .vz-col{width:2rem;height:2rem;border-radius:.6rem;background:#f1f5f9;color:#475569;flex:none}body .vz-col i{transition:transform .25s}body .vz-col.vz-closed i{transform:rotate(180deg)}
+body .vz-tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+body .vz-t{width:100%;border-collapse:separate;border-spacing:0;font-size:.85rem;text-align:right;white-space:nowrap}
+body .vz-t th button{font-weight:700;color:inherit;display:inline-flex;gap:.3rem;align-items:center}body .vz-ar{font-size:.65rem;opacity:.75}
+body .vz-t th:first-child,body .vz-t td:first-child{position:sticky;right:0;z-index:1;box-shadow:-6px 0 8px -6px rgba(15,35,60,.25)}
+body .vz-t thead th:first-child{background:var(--navy)}body .vz-t tbody td:first-child{background:#fff}body .vz-t tbody tr:nth-child(even) td:first-child{background:#f8fafc}body .vz-t tbody tr:hover td:first-child{background:#fff7ed}
+body .vz-fade{animation:vzf .45s ease both}@keyframes vzf{from{opacity:.3;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){body .vz-seg,body .vz-bar,body .vz-ln,body .vz-dots{transition:none}body .vz-fade{animation:none}}
+@media print{.vz-col,#vz-tabs{display:none!important}.vz-body.hidden{display:none!important}}
 </style>
 <style type="text/tailwindcss">
 body{font-family:Cairo,sans-serif}
@@ -98,7 +129,7 @@ body{font-family:Cairo,sans-serif}
 </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
-<div id="offline-bar" class="hidden fixed top-0 inset-x-0 z-[60] bg-red-600 text-white text-center text-sm font-bold py-1.5">لا يوجد اتصال بالإنترنت — الاطلاع على الواجهة فقط، والحفظ وتحميل البيانات يحتاجان اتصالاً.</div>
+<div id="offline-bar" class="hidden fixed top-0 inset-x-0 z-[60] bg-red-600 text-white text-center text-sm font-bold py-1.5">أنت الآن أوفلاين — ما تسجّله يُحفظ على جهازك ويُرفع تلقائياً عند عودة الاتصال.</div>
 <div id="update-bar" class="hidden fixed bottom-4 inset-x-4 z-[60] max-w-md mx-auto bg-slate-900 text-white rounded-2xl shadow-lg p-3 flex items-center gap-3">
   <span class="flex-1 text-sm font-bold">يتوفر تحديث جديد للتطبيق.</span>
   <button id="update-btn" type="button" class="bg-amber-500 text-slate-900 font-bold rounded-xl px-4 py-1.5">تحديث الآن</button>
@@ -193,6 +224,9 @@ body{font-family:Cairo,sans-serif}
           <div class="kpi"><div class="ico"><i class="fa-solid fa-gas-pump"></i></div><div><div class="text-sm text-slate-500">رصيد تانك السولار</div><div id="k-tank" class="text-2xl font-extrabold">0</div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="text-sm text-slate-500">معدات متوقفة حالياً</div><div id="k-down" class="text-2xl font-extrabold">0</div></div></div>
         </div>
+
+        <!-- حالة الأسطول -->
+        <div class="card" id="fleet-card"></div>
 
         <!-- الوثائق والتراخيص -->
         <div class="card" id="docs-card">
@@ -330,6 +364,8 @@ body{font-family:Cairo,sans-serif}
       <!-- البحث والتقارير -->
       <div id="view-reports" class="view hidden space-y-5">
         <h2 class="text-xl font-extrabold">البحث والتقارير</h2>
+        <div id="vz-panel" class="space-y-4"></div>
+        <h3 class="font-extrabold pt-2">تقرير المصروفات التفصيلي</h3>
         <div class="card grid sm:grid-cols-4 gap-3 items-end">
           <div><label class="lbl">من تاريخ</label><input id="r-from" type="date" class="inp"></div>
           <div><label class="lbl">إلى تاريخ</label><input id="r-to" type="date" class="inp"></div>
@@ -965,8 +1001,10 @@ body{font-family:Cairo,sans-serif}
 
 <div class="print-dev">تطوير النظام: بلال محمد سليمان · واتساب 01128079357</div>
 
-<script src="app.js?v=15"></script>
-<script src="qr.js?v=15"></script>
-<script src="ext.js?v=15"></script>
+<script src="app.js?v=17"></script>
+<script src="qr.js?v=17"></script>
+<script src="ext.js?v=17"></script>
+<script src="viz.js?v=17"></script>
+<script src="access.js?v=17"></script>
 </body>
 </html>

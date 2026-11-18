@@ -71,6 +71,10 @@ async function initLive() {
   };
   return {
     login: (e, p) => au.signInWithEmailAndPassword(auth, e, p),
+    register: (e, p) => au.createUserWithEmailAndPassword(auth, e, p),      // إنشاء حساب ذاتي
+    resetPassword: e => au.sendPasswordResetEmail(auth, e),
+    get: async (col, id) => { const d = await fs.getDoc(fs.doc(db, col, id)); return d.exists() ? { id: d.id, ...d.data() } : null; },   // قراءة مستند واحد (للبوابة)
+    rawSet: (col, id, data) => fs.setDoc(fs.doc(db, col, id), data, { merge: true }),                                                     // كتابة مباشرة بدون فحص الأدوار
     logout: () => au.signOut(auth),
     onAuth: cb => au.onAuthStateChanged(auth, cb),
     async list(col) {                      // جلب المجموعة كاملة بدون where/orderBy (لا Composite Index) ثم الفلترة والترتيب في JavaScript
@@ -318,7 +322,7 @@ async function loadData() {
   refreshModuleSelects();
   // كل دالة عرض معزولة: خطأ في واحدة لا يمنع الباقي
   [renderSuggestions, renderModSuggestions, renderDashboard, renderKpiTone, renderOilStrip, renderStatusNotes, renderReadings, renderVehicles, renderReport,
-   renderAdvances, renderInventory, renderOps, renderModWarn, renderAlertStrip, renderUsers, renderNew].forEach(fn => {
+   renderAdvances, renderInventory, renderOps, renderModWarn, renderAlertStrip, renderUsers, renderNew, renderAccess].forEach(fn => {
     try { fn(); } catch (err) { console.error(fn.name, err); }
   });
 }
@@ -1938,6 +1942,7 @@ let userRole = "manager";
 const roleHidden = () => new Set(userRole === "supervisor" ? ALL_PAGES.filter(p => !SUP_PAGES.includes(p)) : userRole === "accountant" ? ["audit", "settings"] : []);
 const myEmail = () => String($("#user-email").textContent || "").trim().toLowerCase();
 function resolveRole() {
+  if (typeof ACCESS !== "undefined" && ACCESS.appRole) return ACCESS.appRole;   // الدور من سجل الحساب (access.js)
   if (!SETTINGS.enableRoles || modErr.users || !usersList.length) return "manager";           // لا قواعد/لا مستخدمين معرّفين بعد
   const u = usersList.find(x => String(x.email || x.id).toLowerCase() === myEmail());
   return u && ROLES[u.role] ? u.role : "supervisor";                  // حساب غير مسجّل ⇐ أقل صلاحية
@@ -2646,9 +2651,10 @@ $("#logout").onclick = () => S.logout();
   wrapAudit(); applyPages();
   $("#demo-note").classList.toggle("hidden", LIVE);
   resetExpenseForm(); resetAdvForm(); resetInvForm(); resetOpsForm();
-  S.onAuth(user => {
+  S.onAuth(async user => {
+    const ok = !!user && (typeof accessGate !== "function" || await accessGate(user));   // بوابة الاعتماد (access.js)
     $("#login").classList.toggle("hidden", !!user);
-    $("#app").classList.toggle("hidden", !user);
-    if (user) { $("#user-email").textContent = user.email; show("dashboard"); loadData(); }
+    $("#app").classList.toggle("hidden", !ok);
+    if (ok) { $("#user-email").textContent = user.email; show("dashboard"); loadData(); }
   });
 })();
