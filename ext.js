@@ -635,7 +635,7 @@ function searchAll(qs) {
   operations.forEach(o => add("تشغيل", `${vNo(o)} ${o.project || ""} ${o.notes || ""}`, "ops"));
   inventory.forEach(i => add("مخزن", `${i.name} ${i.category || ""}`, "inventory"));
   const KN = { company: "شركة", supply: "توريد", payment: "دفعة", driver: "سائق", maint: "صيانة" };
-  biz.forEach(x => add(KN[x.kind] || "", `${x.name || ""} ${x.project || ""} ${x.phone || ""} ${x.desc || ""} ${x.notes || ""} ${x.date || ""}`, x.kind === "driver" || x.kind === "maint" ? "crew" : "biz", () => { tabs[x.kind === "driver" ? "crew" : x.kind === "maint" ? "crew" : "biz"] = { company: "co", supply: "sp", payment: "pay", driver: "dr", maint: "mt" }[x.kind]; }));
+  biz.filter(x => KN[x.kind]).forEach(x => add(KN[x.kind] || "", `${x.name || ""} ${x.project || ""} ${x.phone || ""} ${x.desc || ""} ${x.notes || ""} ${x.date || ""}`, x.kind === "driver" || x.kind === "maint" ? "crew" : "biz", () => { tabs[x.kind === "driver" ? "crew" : x.kind === "maint" ? "crew" : "biz"] = { company: "co", supply: "sp", payment: "pay", driver: "dr", maint: "mt" }[x.kind]; }));
   acct.forEach(p => { add("خزينة", `${p.project} ${p.accountant}`, "acct", () => { curP = p.id; curS = ""; }); (p.sheets || []).forEach(s => (s.items || []).forEach(i => add("بند كشف", `${s.name} ${i.desc} ${i.amount} ${p.project}`, "acct", () => { curP = p.id; curS = s.id; }))); });
   return out.slice(0, 40);
 }

@@ -2,10 +2,10 @@
    تطوير: بلال محمد سليمان | واتساب: 01128079357 | https://wa.me/201128079357
    غيّر VERSION مع كل تحديث للملفات ليصل التحديث للمستخدمين.
    الوضع دون اتصال = واجهة التطبيق فقط (البيانات والحفظ يحتاجان إنترنت). */
-const VERSION = "v14";
+const VERSION = "v15";
 const CACHE = "fawzy-" + VERSION;
 const SHELL = [
-  "./", "index.html", "app.js?v=14", "qr.js?v=14", "ext.js?v=14", "manifest.json",
+  "./", "index.html", "app.js?v=15", "qr.js?v=15", "ext.js?v=15", "manifest.json",
   "icon-192.png", "icon-512.png", "icon-maskable-512.png", "apple-touch-icon.png", "452624.jpg",
   "mixer.png", "pump.png", "loader.png", "dump.png", "roller.png", "truck.png",   // صور المعدات
   "login-bg.jpg", "login-bg-m.jpg"                                                  // خلفيات تسجيل الدخول

@@ -69,6 +69,16 @@ body .dev-sign b{color:#ff9a4d}body .dev-sign a{color:#86efac;font-weight:700;te
 body #login .dev-sign{color:#e2e8f0;margin-top:1rem;text-shadow:0 1px 3px rgba(0,0,0,.5)}body #login .dev-sign b{color:#ffb780}body #login .dev-sign a{color:#bbf7d0}
 body[data-role="supervisor"] .adm-only{display:none!important}
 @media (max-width:640px){body #login{background:linear-gradient(rgba(30,58,95,.78),rgba(22,48,79,.92)),url(login-bg-m.jpg) center/cover no-repeat,#1e3a5f}}
+
+/* ===== مؤشر الاتصال + الصفحات الجديدة ===== */
+body .net-pill{display:inline-flex;align-items:center;gap:.35rem;font-size:.72rem;font-weight:800;border-radius:9999px;padding:.2rem .65rem;border:1px solid #bbf7d0;background:#f0fdf4;color:#15803d;white-space:nowrap}
+body .net-pill i{width:.55rem;height:.55rem;border-radius:9999px;background:#22c55e;display:inline-block}
+body .net-pill.off{background:#fef2f2;border-color:#fecaca;color:#b91c1c}body .net-pill.off i{background:#ef4444}
+body .net-pill.sync{background:#fff7ed;border-color:#fed7aa;color:#c2410c}body .net-pill.sync i{background:#f97316;animation:netp 1s infinite}
+@keyframes netp{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){body .net-pill.sync i{animation:none}}
+body .bdg{display:inline-block;font-size:.7rem;font-weight:800;border-radius:9999px;padding:.1rem .55rem}
+body .bdg-g{background:#dcfce7;color:#166534}body .bdg-o{background:#ffedd5;color:#9a3412}body .bdg-r{background:#fee2e2;color:#991b1b}body .bdg-s{background:#e2e8f0;color:#334155}
 .print-dev{display:none}
 @media print{.print-dev{display:block!important;position:fixed;bottom:0;right:0;left:0;text-align:center;font-size:10px;color:#475569;border-top:1px solid #cbd5e1;padding:3px 0;background:#fff}main{padding-bottom:24px!important}#dev-qr-btn,#dev-qr-modal{display:none!important}}
 </style>
@@ -134,6 +144,11 @@ body{font-family:Cairo,sans-serif}
       <button class="nav-btn leading-tight" data-nav="advances"><i class="fa-solid fa-hand-holding-dollar w-5"></i>حسابات السائقين والعهد</button>
       <button class="nav-btn leading-tight" data-nav="inventory"><i class="fa-solid fa-boxes-stacked w-5"></i>مخزن قطع الغيار</button>
       <button class="nav-btn leading-tight" data-nav="ops"><i class="fa-solid fa-helmet-safety w-5"></i>التشغيل والمشاريع</button>
+      <button class="nav-btn leading-tight" data-nav="fuel"><i class="fa-solid fa-gas-pump w-5"></i>تانك السولار المركزي</button>
+      <button class="nav-btn" data-nav="rent"><i class="fa-solid fa-file-contract w-5"></i>الإيجارات</button>
+      <button class="nav-btn leading-tight" data-nav="down"><i class="fa-solid fa-triangle-exclamation w-5"></i>الأعطال ووقت التوقف</button>
+      <button class="nav-btn leading-tight" data-nav="parts"><i class="fa-solid fa-circle-dot w-5"></i>الكاوتش والبطاريات</button>
+      <button class="nav-btn leading-tight" data-nav="prod"><i class="fa-solid fa-industry w-5"></i>الإنتاج وتكلفة الوحدة</button>
       <button class="nav-btn" data-nav="reports"><i class="fa-solid fa-chart-column w-5"></i>البحث والتقارير</button>
       <button class="nav-btn" data-nav="costing"><i class="fa-solid fa-calculator w-5"></i>التكلفة والتسعير</button>
       <button class="nav-btn" data-nav="quick"><i class="fa-solid fa-bolt w-5"></i>الحاسبة السريعة</button>
@@ -154,6 +169,7 @@ body{font-family:Cairo,sans-serif}
       </div>
       <button type="button" id="print-page" class="text-sm font-bold text-slate-600"><i class="fa-solid fa-print ml-1"></i><span class="hidden sm:inline">طباعة الصفحة</span></button>
       <span id="user-email" class="hidden sm:block text-sm text-slate-500" dir="ltr"></span>
+      <span id="net-pill" class="net-pill" role="status" aria-live="polite"><i></i><b>متصل</b></span>
       <span id="role-badge" class="hidden sm:inline"></span>
     </header>
 
@@ -174,6 +190,14 @@ body{font-family:Cairo,sans-serif}
           <div class="kpi"><div class="ico"><i class="fa-solid fa-id-card"></i></div><div><div class="text-sm text-slate-500">رخص منتهية / قاربت على الانتهاء</div><div id="k-lic" class="text-2xl font-extrabold">0</div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-hand-holding-dollar"></i></div><div><div class="text-sm text-slate-500">إجمالي العهد المفتوحة</div><div id="k-adv" class="text-2xl font-extrabold">0</div><div id="k-adv-sub" class="text-xs text-slate-500"></div></div></div>
           <div class="kpi"><div class="ico"><i class="fa-solid fa-boxes-stacked"></i></div><div><div class="text-sm text-slate-500">أصناف مخزون منخفض</div><div id="k-stock" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-gas-pump"></i></div><div><div class="text-sm text-slate-500">رصيد تانك السولار</div><div id="k-tank" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="text-sm text-slate-500">معدات متوقفة حالياً</div><div id="k-down" class="text-2xl font-extrabold">0</div></div></div>
+        </div>
+
+        <!-- الوثائق والتراخيص -->
+        <div class="card" id="docs-card">
+          <h3 class="font-extrabold mb-3"><i class="fa-solid fa-file-shield text-orange-600 ml-2"></i>الوثائق والتراخيص (منتهية أو تنتهي خلال 30 يوماً)</h3>
+          <div id="docs-list" class="space-y-2"></div>
         </div>
 
         <!-- الزيت الأقرب استحقاقاً -->
@@ -193,6 +217,7 @@ body{font-family:Cairo,sans-serif}
             <button type="button" data-go="advances" class="btn-dark"><i class="fa-solid fa-hand-holding-dollar ml-2"></i>عهدة جديدة</button>
             <button type="button" data-go="inventory" class="btn-dark"><i class="fa-solid fa-boxes-stacked ml-2"></i>المخزن</button>
             <button type="button" data-go="ops" class="btn-dark"><i class="fa-solid fa-helmet-safety ml-2"></i>تسجيل تشغيل</button>
+            <button type="button" id="wa-report-btn" class="btn !bg-green-600 hover:!bg-green-700"><i class="fa-brands fa-whatsapp ml-2"></i>تقرير اليوم لواتساب</button>
           </div>
         </div>
 
@@ -255,12 +280,16 @@ body{font-family:Cairo,sans-serif}
           <div><label class="lbl">رقم الشاسيه</label><input name="chassis" class="inp"></div>
           <div><label class="lbl">سنة الصنع / الموديل</label><input name="modelYear" type="text" class="inp"></div>
           <div><label class="lbl">اسم السائق</label><input name="driver" class="inp"></div>
-          <div><label class="lbl">الموقع الحالي</label><input name="location" type="text" class="inp"></div>
+          <div><label class="lbl">الموقع / المشروع الحالي</label><input name="location" type="text" class="inp" list="dl-sites" autocomplete="off"></div>
           <div><label class="lbl">ساعات التشغيل الحالية</label><input name="hours" type="number" min="0" class="inp" required></div>
           <div><label class="lbl">ساعات آخر تغيير زيت</label><input name="lastOil" type="number" min="0" value="0" class="inp"></div>
           <div><label class="lbl">تاريخ آخر تغيير زيت</label><input name="lastOilDate" type="date" class="inp"></div>
           <div><label class="lbl">فاصل تغيير الزيت (ساعات)</label><input name="oilInterval" type="number" min="1" value="250" class="inp" required></div>
-          <div><label class="lbl">تاريخ انتهاء الرخصة</label><input name="licenseExpiry" type="date" class="inp"></div>
+          <div><label class="lbl">انتهاء رخصة التسيير</label><input name="licenseExpiry" type="date" class="inp"></div>
+          <div><label class="lbl">انتهاء التأمين</label><input name="insuranceExpiry" type="date" class="inp"></div>
+          <div><label class="lbl">انتهاء شهادة المعايرة</label><input name="calibrationExpiry" type="date" class="inp"></div>
+          <div><label class="lbl">المعدل الطبيعي للسولار (لتر / ساعة)</label><input name="normalLph" type="number" min="0" step="0.01" class="inp" placeholder="مثال: 12"></div>
+          <div><label class="lbl">تكلفة ساعة التشغيل (اختياري)</label><input name="hourRate" type="number" min="0" step="0.01" class="inp" placeholder="تدخل في تكلفة الموقع"></div>
           <div><label class="lbl">الحالة</label><select name="status" class="inp"><option value="active">يعمل</option><option value="maintenance">في الصيانة</option></select></div>
           <div class="flex items-end gap-2"><button class="btn flex-1">حفظ المعدة</button><button type="button" id="v-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
         </form>
@@ -327,6 +356,7 @@ body{font-family:Cairo,sans-serif}
           <div><label class="lbl">مبلغ العهدة</label><input name="amount" type="number" min="0.01" step="0.01" class="inp" required></div>
           <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
           <div><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+          <div><label class="lbl">الموقع / المشروع (اختياري)</label><input name="project" class="inp" list="dl-sites" autocomplete="off"></div>
           <div class="sm:col-span-2 lg:col-span-4"><button class="btn w-full sm:w-auto">صرف العهدة</button></div>
         </form>
 
@@ -592,6 +622,180 @@ body{font-family:Cairo,sans-serif}
         <div class="card text-sm text-slate-600">صفحتا «الإدارة والمعدات والمصروفات والتقارير والعدادات» أساسية ولا يمكن إخفاؤها. النسخة الاحتياطية في صفحة «السجل والنسخ الاحتياطي» <button type="button" data-go="audit" class="font-bold text-orange-600">افتحها</button>.</div>
       </div>
 
+
+      <!-- ============ تانك السولار المركزي ============ -->
+      <div id="view-fuel" class="view hidden space-y-5">
+        <div class="flex items-end justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">تانك السولار المركزي ورقابة الجاز</h2><div class="flex gap-2 text-sm"><button type="button" data-export="fuel:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="fuel:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button></div></div>
+        <p class="xm-warn hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <p id="fu-low" class="hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3 font-bold"></p>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-gas-pump"></i></div><div><div class="text-sm text-slate-500">الرصيد المتبقي (لتر)</div><div id="fu-bal" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-arrow-down-long"></i></div><div><div class="text-sm text-slate-500">إجمالي الوارد (لتر)</div><div id="fu-in" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-arrow-up-long"></i></div><div><div class="text-sm text-slate-500">إجمالي المنصرف (لتر)</div><div id="fu-out" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-coins"></i></div><div><div class="text-sm text-slate-500">متوسط سعر اللتر</div><div id="fu-price" class="text-2xl font-extrabold">0</div></div></div>
+        </div>
+        <div class="grid lg:grid-cols-2 gap-5">
+          <form id="fin-form" class="card grid grid-cols-2 gap-3 items-end">
+            <div class="col-span-2 font-extrabold"><i class="fa-solid fa-truck-droplet text-orange-600 ml-2"></i><span data-title>تسجيل وارد سولار للتانك</span></div>
+            <input type="hidden" name="id">
+            <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+            <div><label class="lbl">الكمية (لتر)</label><input name="liters" type="number" min="0.01" step="any" class="inp" required></div>
+            <div><label class="lbl">سعر اللتر (اختياري)</label><input name="price" type="number" min="0" step="0.01" class="inp"></div>
+            <div><label class="lbl">المورد</label><input name="supplier" class="inp" autocomplete="off"></div>
+            <div class="col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+            <div class="col-span-2 flex gap-2"><button class="btn flex-1">حفظ الوارد</button><button type="button" id="fin-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+          </form>
+          <form id="fout-form" class="card grid grid-cols-2 gap-3 items-end">
+            <div class="col-span-2 font-extrabold"><i class="fa-solid fa-gas-pump text-orange-600 ml-2"></i><span data-title>تفويل معدة (يُخصم من التانك)</span></div>
+            <input type="hidden" name="id">
+            <div class="col-span-2"><label class="lbl">المعدة</label><select name="vehicleId" class="inp" required></select></div>
+            <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+            <div><label class="lbl">الكمية (لتر)</label><input name="liters" type="number" min="0.01" step="any" class="inp" required></div>
+            <div><label class="lbl">قراءة عداد الساعات الحالية</label><input name="hours" type="number" min="0" step="any" class="inp" required></div>
+            <div><label class="lbl">الموقع</label><input name="site" class="inp" list="dl-sites" autocomplete="off"></div>
+            <div class="col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+            <p id="fout-hint" class="col-span-2 text-xs text-slate-500">معدل الاستهلاك = لترات هذه التفويلة ÷ الساعات منذ التفويلة السابقة، ويُقارن بالمعدل الطبيعي المحدد في بيانات المعدة. إن كانت القراءة أحدث من عداد المعدة يُحدَّث العداد تلقائياً.</p>
+            <div class="col-span-2 flex gap-2"><button class="btn flex-1">تسجيل التفويل</button><button type="button" id="fout-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+          </form>
+        </div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">معدل استهلاك المعدات (آخر تفويلة مقارنة بالتي قبلها)</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة</th><th>آخر تفويلة</th><th>ساعات منذ السابقة</th><th>المعدل (لتر/ساعة)</th><th>المعدل الطبيعي</th><th>الحالة</th></tr></thead><tbody id="fu-rates"></tbody></table></div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">حركة التانك (الرصيد بعد كل عملية)</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>العملية</th><th>الطرف / المعدة</th><th>الكمية (لتر)</th><th>الرصيد بعد العملية</th><th>التفاصيل</th><th></th></tr></thead><tbody id="fu-moves"></tbody></table></div>
+      </div>
+
+      <!-- ============ الإيجارات ============ -->
+      <div id="view-rent" class="view hidden space-y-5">
+        <div class="flex items-end justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">إدارة الإيجارات (مستأجرة من الغير / مؤجرة للغير)</h2><div class="flex gap-2 text-sm"><button type="button" data-export="rent:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="rent:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button></div></div>
+        <p class="xm-warn hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <form id="rc-form" class="card grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+          <div class="sm:col-span-2 lg:col-span-4 font-extrabold"><i class="fa-solid fa-file-signature text-orange-600 ml-2"></i><span data-title>عقد إيجار جديد</span></div>
+          <input type="hidden" name="id">
+          <div><label class="lbl">المعدة (من أسطول الشركة)</label><select name="vehicleId" class="inp"></select></div>
+          <div><label class="lbl">أو اسم المعدة (من خارج النظام)</label><input name="equipName" class="inp" autocomplete="off"></div>
+          <div><label class="lbl">نوع الإيجار</label><select name="dir" class="inp"><option value="in">مستأجرة من الغير (علينا)</option><option value="out">مؤجرة للغير (لنا)</option></select></div>
+          <div><label class="lbl">اسم المقاول / المالك</label><input name="party" class="inp" required autocomplete="off"></div>
+          <div><label class="lbl">نظام الحساب</label><select name="basis" class="inp"><option value="hour">بالساعة</option><option value="day">باليومية</option></select></div>
+          <div><label class="lbl">السعر (للساعة / لليوم)</label><input name="rate" type="number" min="0.01" step="0.01" class="inp" required></div>
+          <div><label class="lbl">بداية العقد</label><input name="start" type="date" class="inp" required></div>
+          <div><label class="lbl">نهاية العقد (اختياري)</label><input name="end" type="date" class="inp"></div>
+          <div class="sm:col-span-2 lg:col-span-4"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+          <div class="sm:col-span-2 lg:col-span-4 flex gap-2"><button class="btn flex-1 sm:flex-none">حفظ العقد</button><button type="button" id="rc-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+        </form>
+        <form id="rl-form" class="card grid sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+          <div class="sm:col-span-2 lg:col-span-5 font-extrabold"><i class="fa-solid fa-clock text-orange-600 ml-2"></i><span data-title>تسجيل ساعات تشغيل / أعطال يومية على عقد</span></div>
+          <input type="hidden" name="id">
+          <div class="lg:col-span-2"><label class="lbl">العقد</label><select name="contractId" class="inp" required></select></div>
+          <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+          <div><label class="lbl" id="rl-hours-lbl">ساعات التشغيل</label><input name="hours" type="number" min="0" step="any" class="inp"></div>
+          <div><label class="lbl">ساعات التوقف (أعطال)</label><input name="down" type="number" min="0" step="any" class="inp"></div>
+          <p id="rl-hint" class="sm:col-span-2 lg:col-span-5 text-xs text-slate-500"></p>
+          <div class="sm:col-span-2 lg:col-span-3"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+          <div class="lg:col-span-2 flex gap-2"><button class="btn flex-1">تسجيل</button><button type="button" id="rl-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+        </form>
+        <div class="card grid sm:grid-cols-3 gap-3 items-end">
+          <div><label class="lbl">كشف المستحقات من</label><input id="rf-from" type="date" class="inp"></div>
+          <div><label class="lbl">إلى</label><input id="rf-to" type="date" class="inp"></div>
+          <p class="text-xs text-slate-500">صافي المستحق = (ساعات التشغيل − ساعات التوقف) × السعر. في الإيجار باليومية تُحتسب كل يوم مسجل يوماً كاملاً ويُخصم منه (ساعات التوقف ÷ ساعات اليوم المعتمدة). المعدة المرتبطة بالأسطول تُحسب أعطالها تلقائياً من «الأعطال ووقت التوقف».</p>
+        </div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">العقود وصافي المستحق</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة</th><th>النوع</th><th>الطرف</th><th>الحساب</th><th>الفترة</th><th>التشغيل</th><th>التوقف</th><th>الصافي</th><th>صافي المستحق</th><th>مستخلص</th><th></th></tr></thead><tbody id="rc-body"></tbody></table></div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">السجل اليومي</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>العقد</th><th>ساعات التشغيل</th><th>ساعات التوقف</th><th>ملاحظات</th><th></th></tr></thead><tbody id="rl-body"></tbody></table></div>
+      </div>
+
+      <!-- ============ الأعطال ووقت التوقف ============ -->
+      <div id="view-down" class="view hidden space-y-5">
+        <div class="flex items-end justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">سجل الأعطال ووقت التوقف</h2><div class="flex gap-2 text-sm"><button type="button" data-export="down:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="down:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button></div></div>
+        <p class="xm-warn hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <div class="grid sm:grid-cols-3 gap-4">
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-triangle-exclamation"></i></div><div><div class="text-sm text-slate-500">معدات قيد الإصلاح الآن</div><div id="dn-open" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-hourglass-half"></i></div><div><div class="text-sm text-slate-500">ساعات التوقف هذا الشهر</div><div id="dn-month-h" class="text-2xl font-extrabold">0</div></div></div>
+          <div class="kpi"><div class="ico"><i class="fa-solid fa-clock-rotate-left"></i></div><div><div class="text-sm text-slate-500">إجمالي ساعات التوقف</div><div id="dn-total-h" class="text-2xl font-extrabold">0</div></div></div>
+        </div>
+        <form id="dn-form" class="card grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+          <div class="sm:col-span-2 lg:col-span-4 font-extrabold"><i class="fa-solid fa-screwdriver-wrench text-orange-600 ml-2"></i><span data-title>تسجيل عطل جديد</span></div>
+          <input type="hidden" name="id">
+          <div><label class="lbl">المعدة</label><select name="vehicleId" class="inp" required></select></div>
+          <div><label class="lbl">الموقع</label><input name="site" class="inp" list="dl-sites" autocomplete="off"></div>
+          <div><label class="lbl">بداية العطل (تاريخ ووقت)</label><input name="start" type="datetime-local" class="inp" required></div>
+          <div><label class="lbl">الحالة</label><select name="status" class="inp"><option value="open">قيد الإصلاح</option><option value="fixed">تم الإصلاح</option></select></div>
+          <div><label class="lbl">نهاية العطل / وقت الإصلاح</label><input name="end" type="datetime-local" class="inp"></div>
+          <div class="sm:col-span-1 lg:col-span-3"><label class="lbl">سبب العطل</label><input name="cause" class="inp" autocomplete="off" required></div>
+          <div class="sm:col-span-2 lg:col-span-4 flex gap-2"><button class="btn flex-1 sm:flex-none">حفظ العطل</button><button type="button" id="dn-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+        </form>
+        <div class="card grid sm:grid-cols-3 gap-3 items-end">
+          <div><label class="lbl">إحصائيات شهر</label><input id="dn-month" type="month" class="inp"></div>
+          <div class="sm:col-span-2 overflow-x-auto"><table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة</th><th>عدد الأعطال</th><th>ساعات التوقف</th></tr></thead><tbody id="dn-stats"></tbody></table></div>
+        </div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">إجمالي ساعات التوقف بالشهور (آخر 6 شهور)</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr id="dn-months-h"></tr></thead><tbody><tr id="dn-months-b"></tr></tbody></table></div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">سجل الأعطال</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة</th><th>الموقع</th><th>بداية العطل</th><th>الإصلاح</th><th>المدة</th><th>السبب</th><th>الحالة</th><th></th></tr></thead><tbody id="dn-body"></tbody></table></div>
+      </div>
+
+      <!-- ============ الكاوتش والبطاريات ============ -->
+      <div id="view-parts" class="view hidden space-y-5">
+        <div class="flex items-end justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">تتبع الكاوتش والبطاريات بالرقم التسلسلي</h2><div class="flex gap-2 text-sm"><button type="button" data-export="parts:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="parts:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button></div></div>
+        <p class="xm-warn hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <form id="pt-form" class="card grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+          <div class="sm:col-span-2 lg:col-span-4 font-extrabold"><i class="fa-solid fa-circle-dot text-orange-600 ml-2"></i><span data-title>تسجيل قطعة جديدة (تركيب)</span></div>
+          <input type="hidden" name="id">
+          <div><label class="lbl">النوع</label><select name="ptype" class="inp"><option value="tire">كاوتش</option><option value="battery">بطارية</option></select></div>
+          <div><label class="lbl">الرقم التسلسلي (Serial)</label><input name="serial" class="inp" dir="ltr" required autocomplete="off"></div>
+          <div><label class="lbl">المقاس / القدرة</label><input name="size" class="inp" dir="ltr" placeholder="12.00R20 أو 100Ah" autocomplete="off"></div>
+          <div><label class="lbl">التكلفة</label><input name="cost" type="number" min="0" step="0.01" class="inp"></div>
+          <div><label class="lbl">المعدة المركّب عليها</label><select name="vehicleId" class="inp" required></select></div>
+          <div><label class="lbl">موضع التركيب</label><input name="position" class="inp" list="dl-pos" autocomplete="off"></div>
+          <div><label class="lbl">تاريخ التركيب</label><input name="installDate" type="date" class="inp" required></div>
+          <div><label class="lbl">عداد ساعات المعدة وقت التركيب</label><input name="installHours" type="number" min="0" step="any" class="inp" required></div>
+          <div class="sm:col-span-2 lg:col-span-4"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+          <div class="sm:col-span-2 lg:col-span-4 flex gap-2"><button class="btn flex-1 sm:flex-none">حفظ القطعة</button><button type="button" id="pt-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+        </form>
+        <div class="card grid sm:grid-cols-3 gap-3 items-end">
+          <div><label class="lbl">بحث بالرقم التسلسلي / المعدة</label><input id="pt-q" class="inp" dir="ltr" autocomplete="off"></div>
+          <div><label class="lbl">النوع</label><select id="pt-type" class="inp"><option value="">الكل</option><option value="tire">كاوتش</option><option value="battery">بطارية</option></select></div>
+          <div><label class="lbl">الحالة</label><select id="pt-status" class="inp"><option value="">الكل</option><option value="installed">مركّبة حالياً</option><option value="removed">تم استبدالها</option><option value="scrapped">مكهّنة</option></select></div>
+        </div>
+        <div class="card overflow-x-auto"><div id="pt-count" class="text-sm text-slate-500 mb-2"></div>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">النوع</th><th>Serial</th><th>المقاس</th><th>المعدة / الموضع</th><th>التركيب</th><th>عداد التركيب</th><th>الحالة</th><th>ساعات التشغيل المقطوعة</th><th>التكلفة / ساعة</th><th></th></tr></thead><tbody id="pt-body"></tbody></table></div>
+      </div>
+
+      <!-- ============ الإنتاج وتكلفة الوحدة ============ -->
+      <div id="view-prod" class="view hidden space-y-5">
+        <div class="flex items-end justify-between flex-wrap gap-2"><h2 class="text-xl font-extrabold">الإنتاج وحساب التكلفة الفعلية للمتر / الطن</h2><div class="flex gap-2 text-sm"><button type="button" data-export="prod:xlsx" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel</button><button type="button" data-export="prod:pdf" class="btn-dark !px-3 !py-1.5"><i class="fa-solid fa-file-pdf ml-1"></i>PDF</button></div></div>
+        <p class="xm-warn hidden text-sm bg-red-50 text-red-700 border border-red-200 rounded-xl p-3"></p>
+        <div class="grid lg:grid-cols-2 gap-5">
+          <form id="pd-form" class="card grid grid-cols-2 gap-3 items-end">
+            <div class="col-span-2 font-extrabold"><i class="fa-solid fa-industry text-orange-600 ml-2"></i><span data-title>تسجيل الإنتاج اليومي للموقع</span></div>
+            <input type="hidden" name="id">
+            <div class="col-span-2"><label class="lbl">اسم الموقع / المشروع</label><input name="site" class="inp" list="dl-sites" required autocomplete="off"></div>
+            <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+            <div><label class="lbl">الكمية</label><input name="qty" type="number" min="0.01" step="any" class="inp" required></div>
+            <div><label class="lbl">الوحدة</label><select name="unit" class="inp"><option value="m3">م³ خرسانة</option><option value="ton">طن أسفلت</option><option value="meter">متر أسفلت</option></select></div>
+            <div><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
+            <div class="col-span-2 flex gap-2"><button class="btn flex-1">حفظ الإنتاج</button><button type="button" id="pd-cancel" class="hidden px-4 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+          </form>
+          <form id="mv-form" class="card grid grid-cols-2 gap-3 items-end">
+            <div class="col-span-2 font-extrabold"><i class="fa-solid fa-location-dot text-orange-600 ml-2"></i>ربط معدة بالموقع الذي تعمل به حالياً</div>
+            <div class="col-span-2"><label class="lbl">المعدة</label><select name="vehicleId" class="inp" required></select></div>
+            <div class="col-span-2"><label class="lbl">الموقع / المشروع</label><input name="site" class="inp" list="dl-sites" required autocomplete="off"></div>
+            <div class="col-span-2"><button class="btn w-full">ربط المعدة</button></div>
+            <div class="col-span-2"><div class="text-sm font-bold mb-1">المعدات حسب الموقع</div><div id="mv-list" class="text-sm text-slate-600 space-y-1"></div></div>
+          </form>
+        </div>
+        <div class="card grid sm:grid-cols-4 gap-3 items-end">
+          <div><label class="lbl">الموقع</label><select id="pc-site" class="inp"></select></div>
+          <div><label class="lbl">من</label><input id="pc-from" type="date" class="inp"></div>
+          <div><label class="lbl">إلى</label><input id="pc-to" type="date" class="inp"></div>
+          <p class="text-xs text-slate-500">التكلفة = سولار (تفويل التانك × متوسط السعر + مصروفات الوقود على المشروع) + ساعات تشغيل المعدات (ساعات الموقع × تكلفة الساعة) + عُهد السائقين المصروفة على الموقع + الصيانة (مصروفات المشروع غير الوقود + صيانة معدات الموقع).</p>
+        </div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">تكلفة الموقع والتكلفة الفعلية للوحدة</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">الموقع</th><th>الإنتاج</th><th>السولار</th><th>ساعات المعدات</th><th>العُهد</th><th>الصيانة</th><th>إجمالي التكلفة</th><th>التكلفة الفعلية للوحدة</th></tr></thead><tbody id="pc-body"></tbody></table></div>
+        <div class="card overflow-x-auto"><h3 class="font-extrabold mb-3">سجل الإنتاج اليومي</h3>
+          <table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">التاريخ</th><th>الموقع</th><th>الكمية</th><th>ملاحظات</th><th></th></tr></thead><tbody id="pd-body"></tbody></table></div>
+      </div>
+
       <!-- السجل والنسخ الاحتياطي -->
       <div id="view-audit" class="view hidden space-y-5">
         <h2 class="text-xl font-extrabold">السجل والنسخ الاحتياطي</h2>
@@ -623,6 +827,38 @@ body{font-family:Cairo,sans-serif}
   </div>
 </div>
 
+<!-- ============ نافذة تقرير اليوم لواتساب ============ -->
+<div id="wa-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto no-print" role="dialog" aria-modal="true" aria-labelledby="wa-title">
+  <div class="card max-w-lg mx-auto my-8 space-y-3">
+    <div class="flex items-start justify-between gap-2"><h3 id="wa-title" class="text-lg font-extrabold"><i class="fa-brands fa-whatsapp text-green-600 ml-2"></i>تقرير اليوم لواتساب</h3><button type="button" id="wa-x" class="text-2xl text-slate-500" aria-label="إغلاق">&times;</button></div>
+    <textarea id="wa-text" class="inp font-mono text-sm" rows="16" spellcheck="false"></textarea>
+    <p class="text-xs text-slate-500">يمكنك تعديل النص قبل الإرسال.</p>
+    <div class="flex flex-wrap gap-2"><button type="button" id="wa-copy" class="btn-dark"><i class="fa-solid fa-copy ml-2"></i>نسخ النص</button><button type="button" id="wa-open" class="btn !bg-green-600 hover:!bg-green-700"><i class="fa-brands fa-whatsapp ml-2"></i>فتح في واتساب</button></div>
+  </div>
+</div>
+
+<!-- ============ نافذة استبدال / تكهين قطعة ============ -->
+<div id="pt-end-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto no-print" role="dialog" aria-modal="true" aria-labelledby="pt-end-title">
+  <form id="pt-end-form" class="card max-w-md mx-auto my-12 grid grid-cols-2 gap-3">
+    <h3 id="pt-end-title" class="col-span-2 text-lg font-extrabold"></h3>
+    <input type="hidden" name="id">
+    <div class="col-span-2"><label class="lbl">الإجراء</label><select name="status" class="inp"><option value="removed">استبدال / سحب من المعدة</option><option value="scrapped">تكهين</option></select></div>
+    <div><label class="lbl">التاريخ</label><input name="endDate" type="date" class="inp" required></div>
+    <div><label class="lbl">عداد ساعات المعدة الآن</label><input name="endHours" type="number" min="0" step="any" class="inp" required></div>
+    <div class="col-span-2"><label class="lbl">السبب / ملاحظات</label><input name="endReason" class="inp" autocomplete="off"></div>
+    <div class="col-span-2 flex gap-2"><button class="btn flex-1">حفظ</button><button type="button" id="pt-end-cancel" class="px-5 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
+  </form>
+</div>
+
+<!-- ============ نافذة سجل قطعة (Serial) ============ -->
+<div id="pt-hist-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto no-print" role="dialog" aria-modal="true" aria-labelledby="pt-hist-title">
+  <div class="card max-w-2xl mx-auto my-8 space-y-3">
+    <div class="flex items-start justify-between gap-2"><h3 id="pt-hist-title" class="text-lg font-extrabold"></h3><button type="button" id="pt-hist-x" class="text-2xl text-slate-500" aria-label="إغلاق">&times;</button></div>
+    <div id="pt-hist-sum" class="text-sm font-bold"></div>
+    <div class="overflow-x-auto"><table class="w-full text-sm text-right whitespace-nowrap"><thead class="text-slate-500 border-b"><tr><th class="py-2">المعدة / الموضع</th><th>التركيب</th><th>النهاية</th><th>الساعات المقطوعة</th><th>الحالة</th></tr></thead><tbody id="pt-hist-body"></tbody></table></div>
+  </div>
+</div>
+
 <!-- ============ نافذة تعديل عهدة / بند ============ -->
 <div id="adv-edit-modal" class="hidden fixed inset-0 z-50 bg-black/50 p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="adv-edit-title">
   <form id="adv-edit-form" class="card max-w-md mx-auto my-12 grid grid-cols-2 gap-3">
@@ -632,6 +868,7 @@ body{font-family:Cairo,sans-serif}
     <div data-ae="item" class="col-span-2 hidden"><label class="lbl">نوع المصروف</label><input name="type" class="inp" list="dl-adv-types" autocomplete="off"></div>
     <div><label class="lbl">المبلغ</label><input name="amount" type="number" min="0" step="0.01" class="inp" required></div>
     <div><label class="lbl">التاريخ</label><input name="date" type="date" class="inp" required></div>
+    <div data-ae="adv" class="col-span-2"><label class="lbl">الموقع / المشروع (اختياري)</label><input name="project" class="inp" list="dl-sites" autocomplete="off"></div>
     <div class="col-span-2"><label class="lbl">ملاحظات</label><input name="notes" class="inp"></div>
     <p class="col-span-2 text-xs text-slate-500">يُسجَّل التعديل في «السجل» بقيمة كل حقل قبل التغيير وبعده.</p>
     <div class="col-span-2 flex gap-2"><button class="btn flex-1">حفظ التعديل</button><button type="button" id="adv-edit-cancel" class="px-5 py-2.5 rounded-xl bg-slate-200 font-bold">إلغاء</button></div>
@@ -723,11 +960,13 @@ body{font-family:Cairo,sans-serif}
 <datalist id="dl-inv-cats"></datalist>
 <datalist id="dl-units"></datalist>
 <datalist id="dl-projects"></datalist>
+<datalist id="dl-sites"></datalist>
+<datalist id="dl-pos"><option value="أمامي يمين"><option value="أمامي يسار"><option value="خلفي يمين"><option value="خلفي يسار"><option value="خلفي داخلي يمين"><option value="خلفي داخلي يسار"><option value="احتياطي"><option value="بطارية 1"><option value="بطارية 2"></datalist>
 
 <div class="print-dev">تطوير النظام: بلال محمد سليمان · واتساب 01128079357</div>
 
-<script src="app.js?v=14"></script>
-<script src="qr.js?v=14"></script>
-<script src="ext.js?v=14"></script>
+<script src="app.js?v=15"></script>
+<script src="qr.js?v=15"></script>
+<script src="ext.js?v=15"></script>
 </body>
 </html>

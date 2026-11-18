@@ -38,6 +38,9 @@ const SETTINGS = {
   recentCount: 5,      // عدد أحدث المصروفات في الرئيسية
   enableRoles: false,  // false = الكل يدخل بنفس الحساب ويعمل كمدير (نظام الصلاحيات موقوف). غيّرها إلى true لتفعيله لاحقاً
   oilAlertHours: 25,   // شريط التنبيهات في الرئيسية: الزيت أقل من هذا العدد من الساعات المتبقية (أو متجاوز)
+  tankLowLiters: 500,  // تنبيه عندما يقل رصيد تانك السولار عن هذا الرقم (لتر)
+  lphTolerancePct: 10, // نسبة السماح فوق المعدل الطبيعي للسولار قبل التنبيه بالأحمر
+  rentDayHours: 8,     // ساعات اليوم المعتمدة لخصم التوقف في الإيجار باليومية
   advWarnDays: 14,     // عهدة مفتوحة أكثر من هذا العدد من الأيام تظهر باللون الأحمر
   lowStock: 5          // تنبيه المخزن عندما تقل كمية الصنف عن هذا الرقم
 };
@@ -55,16 +58,31 @@ async function initLive() {
   const app = a.initializeApp(firebaseConfig);
   const auth = au.getAuth(app), db = fs.getFirestore(app);
   // العمل أوفلاين: البيانات تُخزَّن على الجهاز والتعديلات تُرفع تلقائياً عند عودة الاتصال
-  try { await fs.enableIndexedDbPersistence(db); }
-  catch (err) { console.warn("offline persistence:", err && err.code); }      // failed-precondition = أكثر من تبويب مفتوح
-  // بدون اتصال لا ننتظر تأكيد الخادم (الكتابة تبقى في الطابور المحلي)
-  const ack = p => navigator.onLine ? p : Promise.race([p, new Promise(r => setTimeout(r, 1500))]);
+  try { await (fs.enableMultiTabIndexedDbPersistence || fs.enableIndexedDbPersistence)(db); }   // Firebase 9.23: يدعم أكثر من تبويب/PWA معاً
+  catch (err) { console.warn("offline persistence:", err && err.code); }      // unimplemented = متصفح لا يدعم التخزين المحلي
+  // الكتابة أوفلاين تبقى في الطابور المحلي ولا ننتظر تأكيد الخادم؛ العدّاد يغذّي مؤشر «بانتظار المزامنة» في الهيدر
+  let pending = 0;
+  const sync = () => window.dispatchEvent(new CustomEvent("fz-sync", { detail: pending }));
+  const ack = p => {
+    pending++; sync();
+    const done = () => { pending--; sync(); };
+    p.then(done, done);
+    return Promise.race([p, new Promise(r => setTimeout(r, navigator.onLine ? 8000 : 1200))]);
+  };
   return {
     login: (e, p) => au.signInWithEmailAndPassword(auth, e, p),
     logout: () => au.signOut(auth),
     onAuth: cb => au.onAuthStateChanged(auth, cb),
-    async list(col) {
-      const s = await fs.getDocs(fs.collection(db, col));
+    async list(col) {                      // جلب المجموعة كاملة بدون where/orderBy (لا Composite Index) ثم الفلترة والترتيب في JavaScript
+      const ref = fs.collection(db, col), cache = async () => { try { const c = await fs.getDocsFromCache(ref); return c.empty ? null : c; } catch (e) { return null; } };
+      let s = null;
+      if (!navigator.onLine) s = await cache();                       // أوفلاين: من الكاش فوراً بدون انتظار
+      else {
+        const live = fs.getDocs(ref); live.catch(() => {});
+        s = await Promise.race([live, new Promise(r => setTimeout(() => r(null), 7000))]);
+        if (!s) s = await cache();                                    // شبكة ضعيفة: آخر نسخة محفوظة بدل الانتظار
+      }
+      if (!s) s = await fs.getDocs(ref);                              // لا كاش بعد: ننتظر الخادم
       return s.docs.map(d => ({ id: d.id, ...d.data() }));
     },
     async save(col, data, id) {            // id موجود = تعديل، بدونه = إضافة (المعرّف يُولَّد محلياً ليعمل أوفلاين)
@@ -293,14 +311,14 @@ const vehicleOptions = extra => `<option value="">اختر المعدة</option>
 async function loadData() {
   [vehicles, expenses] = await Promise.all([S.list("vehicles"), S.list("expenses")]);
   // المجموعات الجديدة: فشل قراءتها (مثلاً قواعد Firestore) لا يعطّل بقية النظام
-  [advances, inventory, operations, usersList] = await Promise.all(["advances", "inventory", "operations", "users"].map(listSafe));
+  [advances, inventory, operations, usersList, xbiz] = await Promise.all(["advances", "inventory", "operations", "users", "biz"].map(listSafe));   // biz كاملة ثم فلترة kind بـ JavaScript
   try { setRole(resolveRole()); } catch (err) { console.error("role", err); }   // الدور أولاً ثم العرض
   const sel = $("#exp-vehicle"), cur = sel.value;
   sel.innerHTML = vehicleOptions(); sel.value = cur;
   refreshModuleSelects();
   // كل دالة عرض معزولة: خطأ في واحدة لا يمنع الباقي
   [renderSuggestions, renderModSuggestions, renderDashboard, renderKpiTone, renderOilStrip, renderStatusNotes, renderReadings, renderVehicles, renderReport,
-   renderAdvances, renderInventory, renderOps, renderModWarn, renderAlertStrip, renderUsers].forEach(fn => {
+   renderAdvances, renderInventory, renderOps, renderModWarn, renderAlertStrip, renderUsers, renderNew].forEach(fn => {
     try { fn(); } catch (err) { console.error(fn.name, err); }
   });
 }
@@ -467,6 +485,7 @@ function renderVehicles() {
         ${oilDate(v) ? `<div class="text-xs text-slate-500">آخر تغيير زيت: ${esc(oilDate(v))}${(v.oilLog || []).length && !v.lastOilDate ? ` عند ${num(v.oilLog.at(-1).h)} ساعة` : ` عند ${num(v.lastOil)} ساعة`}</div>` : ""}
         <div>الرخصة: <span class="${lic.cls}">${esc(lic.text)}</span></div>
         ${fs ? `<div>الوقود: ${fmt(fs.liters)} لتر${fs.rate != null ? ` · ${fmt(fs.rate)} لتر/ساعة` : ""}</div>` : ""}
+        ${vehicleExtra(v)}
       </div>
       <div class="mt-3 flex gap-4 text-sm font-bold">
         <button data-oil="${esc(v.id)}" class="text-green-700"><i class="fa-solid fa-oil-can ml-1"></i>تم تغيير الزيت</button>
@@ -558,7 +577,8 @@ vForm.onsubmit = e => guarded(e, async f => {
   f.hours = +f.hours; f.lastOil = +f.lastOil || 0; f.lastOilDate = f.lastOilDate || "";
   f.oilInterval = +f.oilInterval > 0 ? +f.oilInterval : SETTINGS.oilInterval;
   f.modelYear = cleanName(f.modelYear); f.location = cleanName(f.location);
-  f.licenseExpiry = f.licenseExpiry || "";
+  f.licenseExpiry = f.licenseExpiry || ""; f.insuranceExpiry = f.insuranceExpiry || ""; f.calibrationExpiry = f.calibrationExpiry || "";
+  f.normalLph = toNum(f.normalLph); f.hourRate = toNum(f.hourRate);
   if (!id) {                                                      // نفس رقم معدة مؤرشفة ⇐ نعرض الاستعادة
     const dup = archivedVehicles().find(x => normAr(x.number) === normAr(f.number));
     if (dup) {
@@ -624,7 +644,7 @@ $("#v-list").onclick = ev => {
   const b = ev.target.closest("[data-edit]"); if (!b) return;
   const v = vehicles.find(x => x.id === b.dataset.edit), f = vForm;
   f.elements.vid.value = v.id;
-  ["number", "chassis", "driver", "hours", "lastOil", "status", "modelYear", "location", "licenseExpiry", "lastOilDate"].forEach(k => f.elements[k].value = v[k] ?? "");
+  ["number", "chassis", "driver", "hours", "lastOil", "status", "modelYear", "location", "licenseExpiry", "lastOilDate", "insuranceExpiry", "calibrationExpiry", "normalLph", "hourRate"].forEach(k => f.elements[k].value = v[k] ?? "");
   f.elements.oilInterval.value = oilInt(v);
   // نوع غير موجود في القائمة = نوع مخصص ⇐ نعرضه في خانة "أخرى"
   const isStd = stdTypes().includes(v.type);
@@ -782,7 +802,7 @@ aForm.onsubmit = e => guarded(e, mod(async f => {
   if (!driver) return alert("أدخل اسم السائق.");
   const amount = toNum(f.amount);
   if (!(amount > 0)) return alert("أدخل مبلغ العهدة.");
-  await S.save("advances", { driver, amount, date: f.date, notes: cleanName(f.notes), status: "open", items: [], createdAt: Date.now(), closedAt: null });
+  await S.save("advances", { driver, amount, date: f.date, notes: cleanName(f.notes), project: cleanName(f.project), status: "open", items: [], createdAt: Date.now(), closedAt: null });
   resetAdvForm(); await loadData();
 }));
 
@@ -885,7 +905,7 @@ function openAdvEdit(a, item) {
   $("#adv-edit-title").textContent = item ? `تعديل مصروف طريق — ${a.driver}` : `تعديل عهدة ${a.driver}`;
   const src = item || a;
   if (item) f.elements.type.value = item.type || "";
-  else f.elements.driver.value = a.driver || "";
+  else { f.elements.driver.value = a.driver || ""; f.elements.project.value = a.project || ""; }
   f.elements.amount.value = src.amount ?? ""; f.elements.date.value = src.date || ""; f.elements.notes.value = src.notes || "";
   aeModal.classList.remove("hidden");
   (item ? f.elements.type : f.elements.driver).focus();
@@ -902,9 +922,10 @@ aeForm.onsubmit = e => guarded(e, mod(async f => {
   let upd, note;
   if (!f.iid) {                                                          // تعديل العهدة نفسها
     const driver = smartName(f.driver, drivers()); if (!driver) return alert("أدخل اسم السائق / المستلم.");
-    upd = { driver, amount, date: f.date, notes };
+    const project = cleanName(f.project);
+    upd = { driver, amount, date: f.date, notes, project };
     if (a.status === "closed") { upd.spent = advSpent(a); upd.balance = amount - advSpent(a); }   // العهدة المصفّاة: يُعاد حساب الرصيد
-    note = chg([["السائق", a.driver, driver], ["المبلغ", a.amount, amount], ["التاريخ", a.date, f.date], ["ملاحظات", a.notes, notes]]);
+    note = chg([["السائق", a.driver, driver], ["المبلغ", a.amount, amount], ["التاريخ", a.date, f.date], ["الموقع", a.project, project], ["ملاحظات", a.notes, notes]]);
   } else {                                                               // تعديل بند (مصروف طريق)
     const old = (a.items || []).find(i => i.id === f.iid); if (!old) return alert("البند غير موجود.");
     const type = smartName(f.type, advTypesKnown()); if (!type) return alert("أدخل نوع المصروف.");
@@ -1314,29 +1335,6 @@ function receiptDoc(a) {
   };
 }
 
-/* ---- شريط التنبيهات الذكي (الرئيسية): الزيت القريب/المتجاوز + العهد المفتوحة غير المصفّاة ---- */
-function renderAlertStrip() {
-  const el = $("#alert-strip"); if (!el) return;
-  const chips = [];
-  const oil = activeVehicles().filter(v => oilLeft(v) < SETTINGS.oilAlertHours).sort((x, y) => oilLeft(x) - oilLeft(y));
-  oil.forEach(v => {
-    const l = oilLeft(v);
-    chips.push({ go: "readings", sev: l <= 0 ? 2 : 1, icon: "fa-oil-can", t: `${v.number} — ${l < 0 ? `تجاوز موعد الزيت بـ ${num(-l)} ساعة` : l === 0 ? "موعد الزيت الآن" : `متبقي ${num(l)} ساعة للزيت`}` });
-  });
-  if (!pageOff("advances")) {
-    advances.filter(a => a.status === "open").sort((x, y) => (x.date || "").localeCompare(y.date || "")).forEach(a => {
-      const d = a.date ? ageOf(a.date) : 0;
-      chips.push({ go: "advances", sev: d > SETTINGS.advWarnDays ? 2 : 1, icon: "fa-hand-holding-dollar", t: `عهدة ${a.driver} مفتوحة غير مصفّاة${d ? ` منذ ${d} يوم` : ""} — المتبقي ${money(advBal(a))}` });
-    });
-  }
-  const red = chips.some(c => c.sev === 2);
-  el.className = "no-print rounded-2xl border p-3 " + (!chips.length ? "bg-green-50 border-green-200 text-green-800" : red ? "bg-red-50 border-red-200" : "bg-orange-50 border-orange-200");
-  el.innerHTML = !chips.length
-    ? `<i class="fa-solid fa-circle-check ml-2"></i><b>لا توجد تنبيهات عاجلة:</b> لا زيت قارب على الاستحقاق ولا عهد مفتوحة.`
-    : `<div class="flex items-center gap-2 font-extrabold mb-2 ${red ? "text-red-700" : "text-orange-700"}"><i class="fa-solid fa-bell"></i>تنبيهات تحتاج متابعة (${chips.length})</div>
-       <div class="flex flex-wrap gap-2">${chips.map(c => `<button type="button" data-alert-go="${c.go}" class="text-xs sm:text-sm font-bold rounded-full px-3 py-1.5 border ${c.sev === 2 ? "bg-red-100 text-red-800 border-red-300" : "bg-white text-orange-800 border-orange-300"}"><i class="fa-solid ${c.icon} ml-1"></i>${esc(c.t)}</button>`).join("")}</div>`;
-}
-document.addEventListener("click", ev => { const b = ev.target.closest("[data-alert-go]"); if (b) show(b.dataset.alertGo); });
 
 /* ---- إدارة المستخدمين والأدوار (للمدير فقط) ---- */
 function renderUsers() {
@@ -1422,8 +1420,8 @@ const AUD_ACT = { add: "إضافة", edit: "تعديل", delete: "حذف", archi
 let auditNote = "";                                                    // وصف مخصص للعملية التالية (يُستهلك مرة واحدة)
 const FIELD_AR = { amount: "المبلغ", driver: "السائق", date: "التاريخ", notes: "ملاحظات", name: "الاسم", phone: "التليفون", qty: "الكمية", price: "السعر", total: "الإجمالي",
   type: "النوع", desc: "الوصف", cost: "التكلفة", project: "المشروع", priceM3: "سعر م³", priceTrip: "سعر الرحلة", unit: "الوحدة", companyId: "الشركة", vehicleId: "المعدة", vehicleNo: "رقم المعدة",
-  number: "رقم المعدة", hours: "الساعات", status: "الحالة", location: "الموقع", category: "التصنيف", role: "الدور", licNo: "رقم الرخصة", licExp: "انتهاء الرخصة", accountant: "المحاسب", opening: "العهدة المرحّلة", from: "من", to: "إلى" };
-const BIZ_KIND = { company: "شركة", supply: "توريد", payment: "دفعة", driver: "سائق", maint: "صيانة" };
+  number: "رقم المعدة", hours: "الساعات", status: "الحالة", location: "الموقع", category: "التصنيف", role: "الدور", liters: "اللترات", site: "الموقع", supplier: "المورد", serial: "Serial", rate: "السعر", party: "الطرف", start: "البداية", end: "النهاية", cause: "السبب", basis: "نظام الحساب", dir: "النوع", down: "ساعات التوقف", position: "الموضع", installHours: "عداد التركيب", endHours: "عداد النهاية", installDate: "تاريخ التركيب", endDate: "تاريخ النهاية", ptype: "نوع القطعة", size: "المقاس", equipName: "اسم المعدة", normalLph: "المعدل الطبيعي", hourRate: "تكلفة الساعة", insuranceExpiry: "انتهاء التأمين", calibrationExpiry: "انتهاء المعايرة", licenseExpiry: "انتهاء الرخصة", location: "الموقع الحالي", licNo: "رقم الرخصة", licExp: "انتهاء الرخصة", accountant: "المحاسب", opening: "العهدة المرحّلة", from: "من", to: "إلى" };
+const BIZ_KIND = { company: "شركة", supply: "توريد", payment: "دفعة", driver: "سائق", maint: "صيانة", fuelin: "وارد سولار", fuelout: "تفويل", rental: "عقد إيجار", rday: "سجل إيجار", downtime: "عطل", part: "كاوتش/بطارية", prod: "إنتاج" };
 const SUP_COLS = ["vehicles", "expenses", "operations"], SUP_VEH_KEYS = ["hours", "hoursDate", "hlog"];
 function roleDeny(msg) { const e = new Error(msg); e.code = "role-denied"; throw e; }
 function checkRole(op, col, d, id) {                                   // يُنفَّذ قبل أي كتابة/حذف
@@ -1929,12 +1927,12 @@ oilForm.onsubmit = e => guarded(e, async f => {
 });
 
 /* ---- الإعدادات: إخفاء الصفحات غير المستخدمة (لا يحذف أي بيانات) ---- */
-const PAGES = { advances: "حسابات السائقين والعهد", inventory: "مخزن قطع الغيار", ops: "التشغيل والمشاريع", costing: "التكلفة والتسعير", quick: "الحاسبة السريعة" };
+const PAGES = { advances: "حسابات السائقين والعهد", inventory: "مخزن قطع الغيار", ops: "التشغيل والمشاريع", costing: "التكلفة والتسعير", quick: "الحاسبة السريعة", fuel: "تانك السولار المركزي", rent: "الإيجارات", down: "الأعطال ووقت التوقف", parts: "الكاوتش والبطاريات", prod: "الإنتاج وتكلفة الوحدة" };
 /* ---- الصلاحيات: مدير / محاسب / مشرف موقع ----
    الدور يُقرأ من مجموعة users (معرّف المستند = البريد بحروف صغيرة). القائمة فارغة ⇐ الكل مدير (حتى لا يُقفل أحد خارج النظام).
    ملاحظة: هذه حماية على مستوى الواجهة والكتابة من التطبيق؛ للحماية الكاملة أضف نفس القواعد في Firestore Rules. */
 const ROLES = { manager: "مدير", accountant: "محاسب", supervisor: "مشرف موقع" };
-const ALL_PAGES = ["dashboard", "vehicles", "readings", "expenses", "advances", "inventory", "ops", "reports", "costing", "quick", "audit", "settings", "biz", "acct", "crew"];
+const ALL_PAGES = ["dashboard", "vehicles", "readings", "expenses", "advances", "inventory", "ops", "reports", "costing", "quick", "audit", "settings", "biz", "acct", "crew", "fuel", "rent", "down", "parts", "prod"];
 const SUP_PAGES = ["readings", "expenses", "ops"];                   // مشرف الموقع: العدادات + الوقود + يومية التشغيل فقط
 let userRole = "manager";
 const roleHidden = () => new Set(userRole === "supervisor" ? ALL_PAGES.filter(p => !SUP_PAGES.includes(p)) : userRole === "accountant" ? ["audit", "settings"] : []);
@@ -1968,6 +1966,7 @@ function applyPages() {
   $$("[data-go]").forEach(b => b.classList.toggle("hidden", h.has(b.dataset.go)));
   $("#k-adv").closest(".kpi").classList.toggle("hidden", h.has("advances"));
   $("#k-stock").closest(".kpi").classList.toggle("hidden", h.has("inventory"));
+  $("#k-tank").closest(".kpi").classList.toggle("hidden", h.has("fuel"));
 }
 function renderSettings() {
   renderUsers();
@@ -2045,6 +2044,563 @@ function renderKpiTone() {
     document.addEventListener("visibilitychange", () => { if (!document.hidden) reg.update().catch(() => {}); });
   }).catch(err => console.warn("sw", err));
 })();
+
+/* =====================================================
+   الوحدات الجديدة (v15): تانك السولار • الإيجارات • الأعطال ووقت التوقف • الكاوتش والبطاريات
+   • الإنتاج وتكلفة الوحدة • تنبيهات الوثائق • تقرير واتساب • مؤشر الاتصال
+   كل السجلات الجديدة تُخزَّن في مجموعة biz الموجودة أصلاً بحقل kind، فلا مجموعات جديدة ولا تعديل في قواعد Firestore:
+     fuelin   وارد سولار للتانك          fuelout  تفويل معدة من التانك
+     rental   عقد إيجار                  rday     سجل يومي لعقد إيجار (تشغيل/أعطال)
+     downtime عطل ووقت توقف              part     كاوتش / بطارية بالسيريال
+     prod     إنتاج يومي لموقع
+   القراءة: جلب biz كاملة بـ getDocs ثم الفلترة (kind) والترتيب (التاريخ) بـ JavaScript.
+   لا يوجد where ولا orderBy في أي استعلام ⇐ لا يطلب Firestore أي Composite Index ويعمل أوفلاين من الكاش فوراً.
+   ===================================================== */
+let xbiz = [];
+const XK = k => xbiz.filter(x => x.kind === k);
+const xGet = id => xbiz.find(x => x.id === id);
+const byDate = (a, b) => (a.date || "").localeCompare(b.date || "") || (a.createdAt || 0) - (b.createdAt || 0);
+const vById = id => vehicles.find(v => v.id === id);
+const vLabel = v => v ? (v.type ? `${v.number} - ${v.type}` : `${v.number}`) : "—";
+const sumBy = (arr, f) => arr.reduce((s, x) => s + (+f(x) || 0), 0);
+const hrs = h => `${fmt(Math.round(h * 10) / 10)} ساعة`;
+const pad2 = n => String(n).padStart(2, "0");
+const nowLocal = () => { const d = new Date(); return `${today()}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const inRng = (d, a, b) => !!d && (!a || d >= a) && (!b || d <= b);
+const dayStart = d => Date.parse(d + "T00:00:00"), dayEnd = d => Date.parse(d + "T23:59:59.999");
+const serKey = s => String(s || "").trim().toLowerCase().replace(/\s+/g, "");
+const badge = (cls, t) => `<span class="bdg bdg-${cls}">${esc(t)}</span>`;
+const actBtns = (k, id) => `<div class="flex gap-3"><button type="button" data-${k}-edit="${esc(id)}" class="text-orange-600" aria-label="تعديل"><i class="fa-solid fa-pen"></i></button><button type="button" data-${k}-del="${esc(id)}" class="text-red-600" aria-label="حذف"><i class="fa-solid fa-trash"></i></button></div>`;
+const noRows = (n, t = "لا توجد بيانات.") => `<tr><td colspan="${n}" class="py-4 text-slate-500">${t}</td></tr>`;
+const knownSites = () => uniq([...XK("prod").map(x => x.site), ...XK("fuelout").map(x => x.site), ...vehicles.map(v => v.location), ...projects(), ...advances.map(a => a.project)]);
+const vOpts = (ph, cur) => `<option value="">${ph}</option>` + vehicles.filter(v => !v.archived || v.id === cur).map(v => `<option value="${esc(v.id)}">${esc(vLabel(v))}</option>`).join("");
+function fillSel(sel, html) { const c = sel.value; sel.innerHTML = html; if (c && [...sel.options].some(o => o.value === c)) sel.value = c; }
+function xWarn() {
+  $$(".xm-warn").forEach(el => {
+    const e = modErr.biz; el.classList.toggle("hidden", !e);
+    el.textContent = e === "perm" ? "لا توجد صلاحية لقراءة مجموعة «biz» في Firestore (نفس مجموعة الشركات والسائقين)." : e ? "تعذر تحميل بيانات هذه الصفحة. تأكد من الاتصال ثم حدّث الصفحة." : "";
+  });
+}
+async function xSave(rec, id) {
+  await S.save("biz", id ? rec : { ...rec, createdAt: Date.now() }, id || undefined);
+  await loadData();
+}
+function xReset(form, cancelSel, defaults = {}) {
+  form.reset(); form.elements.id.value = "";
+  Object.entries(defaults).forEach(([k, v]) => { if (form.elements[k]) form.elements[k].value = v; });
+  $(cancelSel).classList.add("hidden");
+  const t = form.querySelector("[data-title]"); t.textContent = t.dataset.t0 ||= t.textContent;
+}
+function xLoad(form, rec, keys, cancelSel, label) {
+  keys.forEach(k => { if (form.elements[k]) form.elements[k].value = rec[k] ?? ""; });
+  form.elements.id.value = rec.id; $(cancelSel).classList.remove("hidden");
+  const t = form.querySelector("[data-title]"); t.dataset.t0 ||= t.textContent; t.textContent = label;
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+$$("form[id$='-form'] [data-title]").forEach(t => { t.dataset.t0 = t.textContent; });
+
+/* ================= 1) تانك السولار المركزي ================= */
+const finF = $("#fin-form"), foutF = $("#fout-form");
+const resetFin = () => xReset(finF, "#fin-cancel", { date: today() });
+const resetFout = () => xReset(foutF, "#fout-cancel", { date: today() });
+$("#fin-cancel").onclick = resetFin; $("#fout-cancel").onclick = resetFout;
+
+function tankStats() {
+  const ins = XK("fuelin"), outs = XK("fuelout");
+  const inL = sumBy(ins, x => x.liters), outL = sumBy(outs, x => x.liters);
+  const priced = ins.filter(x => +x.price > 0 && +x.liters > 0), pl = sumBy(priced, x => x.liters);
+  return { inL, outL, bal: inL - outL, price: pl ? sumBy(priced, x => x.liters * x.price) / pl : 0 };
+}
+function priceAt(date) {                         // متوسط سعر اللتر المرجّح حتى تاريخ معين (وإلا المتوسط العام)
+  const all = XK("fuelin").filter(x => +x.price > 0 && +x.liters > 0);
+  const upto = all.filter(x => (x.date || "") <= (date || "9999")), src = upto.length ? upto : all, L = sumBy(src, x => x.liters);
+  return L ? sumBy(src, x => x.liters * x.price) / L : 0;
+}
+function fuelRates() {                           // لكل تفويلة: ساعات منذ التفويلة السابقة للمعدة + المعدل (لتر/ساعة)
+  const map = {}, by = {};
+  XK("fuelout").forEach(x => (by[x.vehicleId] ||= []).push(x));
+  Object.values(by).forEach(rows => {
+    rows = rows.filter(x => Number.isFinite(+x.hours) && x.hours !== "" && x.hours != null)
+      .sort((a, b) => a.hours - b.hours || byDate(a, b));
+    rows.forEach((x, i) => {
+      if (!i) return;
+      const dh = x.hours - rows[i - 1].hours;
+      if (dh > 0 && +x.liters > 0) map[x.id] = { dh, lph: x.liters / dh, prev: rows[i - 1] };
+    });
+  });
+  return map;
+}
+const lphLevel = (v, lph) => {                   // red: تجاوز المعدل الطبيعي + نسبة السماح • orange: أعلى من الطبيعي • ok
+  const n = v && +v.normalLph;
+  if (!(n > 0) || lph == null) return "";
+  return lph > n * (1 + SETTINGS.lphTolerancePct / 100) ? "red" : lph > n ? "orange" : "ok";
+};
+const LVL = { red: ["r", "أعلى من الطبيعي"], orange: ["o", "أعلى قليلاً"], ok: ["g", "طبيعي"], "": ["s", "المعدل الطبيعي غير محدد"] };
+function lastRate(vid) {                          // آخر معدل محسوب للمعدة
+  const rates = fuelRates(), rows = XK("fuelout").filter(x => x.vehicleId === vid && rates[x.id]).sort((a, b) => b.hours - a.hours || byDate(b, a));
+  return rows.length ? { ...rates[rows[0].id], rec: rows[0] } : null;
+}
+function fuelMoves() {                            // وارد + تفويل بالترتيب الزمني مع الرصيد بعد كل عملية
+  const rates = fuelRates();
+  const all = [...XK("fuelin").map(x => ({ ...x, t: "in" })), ...XK("fuelout").map(x => ({ ...x, t: "out" }))].sort(byDate);
+  let bal = 0;
+  return all.map(x => { bal += (x.t === "in" ? 1 : -1) * (+x.liters || 0); return { ...x, bal, rate: rates[x.id] }; });
+}
+function renderFuel() {
+  const t = tankStats();
+  $("#fu-bal").textContent = fmt(t.bal); $("#fu-in").textContent = fmt(t.inL); $("#fu-out").textContent = fmt(t.outL);
+  $("#fu-price").textContent = t.price ? money(Math.round(t.price * 100) / 100) : "—";
+  const low = $("#fu-low"), isLow = t.bal < SETTINGS.tankLowLiters;
+  low.classList.toggle("hidden", !isLow);
+  low.textContent = t.bal < 0 ? `الرصيد سالب (${fmt(t.bal)} لتر): راجع الوارد المسجل أو أضف وارداً ناقصاً.` : `تنبيه: رصيد التانك (${fmt(t.bal)} لتر) أقل من حد التنبيه ${fmt(SETTINGS.tankLowLiters)} لتر.`;
+  const vids = uniq(XK("fuelout").map(x => x.vehicleId));
+  $("#fu-rates").innerHTML = vids.map(id => {
+    const v = vById(id), r = lastRate(id), cnt = XK("fuelout").filter(x => x.vehicleId === id).length;
+    if (!r) return `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(vLabel(v))}</td><td colspan="5" class="text-slate-500">${cnt === 1 ? "تفويلة واحدة فقط — لا توجد مقارنة بعد." : "لا توجد قراءات عداد كافية للمقارنة."}</td></tr>`;
+    const lv = lphLevel(v, r.lph), [c, tx] = LVL[lv], n = v && +v.normalLph;
+    return `<tr class="border-b last:border-0 ${lv === "red" ? "bg-red-50" : ""}"><td class="py-2 font-bold">${esc(vLabel(v))}</td><td>${esc(r.rec.date)} · ${fmt(r.rec.liters)} لتر</td><td>${fmt(r.dh)}</td>
+      <td class="font-extrabold ${lv === "red" ? "text-red-600" : lv === "orange" ? "text-orange-600" : ""}">${fmt(r.lph)}</td><td>${n > 0 ? fmt(n) : "—"}</td><td>${badge(c, tx)}</td></tr>`;
+  }).join("") || noRows(6, "لا توجد تفويلات بعد.");
+  $("#fu-moves").innerHTML = fuelMoves().reverse().map(x => {
+    const out = x.t === "out", lv = out && x.rate ? lphLevel(vById(x.vehicleId), x.rate.lph) : "";
+    const det = out ? `عداد ${fmt(x.hours)}${x.site ? ` · ${esc(x.site)}` : ""}${x.rate ? ` · <b class="${lv === "red" ? "text-red-600" : lv === "orange" ? "text-orange-600" : ""}">${fmt(x.rate.lph)} لتر/س</b>` : ""}` : `${+x.price > 0 ? `${fmt(x.price)} ${SETTINGS.currency}/لتر` : ""}`;
+    return `<tr class="border-b last:border-0"><td class="py-2">${esc(x.date)}</td><td>${out ? badge("o", "تفويل") : badge("g", "وارد")}</td><td class="font-bold">${esc(out ? (x.vehicleNo || vLabel(vById(x.vehicleId))) : (x.supplier || "—"))}</td>
+      <td class="font-bold ${out ? "text-red-600" : "text-green-700"}">${out ? "−" : "+"}${fmt(x.liters)}</td><td class="font-extrabold ${x.bal < 0 ? "text-red-600" : ""}">${fmt(x.bal)}</td><td>${det}${x.notes ? ` · ${esc(x.notes)}` : ""}</td><td>${actBtns("fx", x.id)}</td></tr>`;
+  }).join("") || noRows(7, "لا توجد حركات بعد. سجّل أول وارد سولار.");
+}
+finF.onsubmit = e => guarded(e, mod(async f => {
+  const liters = toNum(f.liters); if (!(liters > 0)) return alert("أدخل كمية الوارد باللتر.");
+  const price = toNum(f.price);
+  await xSave({ kind: "fuelin", name: `وارد سولار ${fmt(liters)} لتر`, date: f.date, liters, price: price > 0 ? price : null, supplier: cleanName(f.supplier), notes: cleanName(f.notes) }, f.id);
+  resetFin();
+}));
+foutF.elements.vehicleId.onchange = () => {
+  const v = vById(foutF.elements.vehicleId.value); if (!v || foutF.elements.id.value) return;
+  if (!foutF.elements.site.value) foutF.elements.site.value = v.location || "";
+  if (!foutF.elements.hours.value) foutF.elements.hours.value = v.hours ?? "";
+};
+foutF.onsubmit = e => guarded(e, mod(async f => {
+  const v = vById(f.vehicleId); if (!v) return alert("اختر المعدة.");
+  const liters = toNum(f.liters), hours = toNum(f.hours);
+  if (!(liters > 0)) return alert("أدخل الكمية باللتر.");
+  if (hours == null || hours < 0) return alert("أدخل قراءة عداد الساعات الحالية.");
+  const old = f.id ? xGet(f.id) : null, avail = tankStats().bal + (old && old.kind === "fuelout" ? +old.liters || 0 : 0);
+  if (liters > avail && !confirm(`الكمية (${fmt(liters)} لتر) أكبر من رصيد التانك (${fmt(avail)} لتر).\nتسجيل التفويل رغم ذلك؟`)) return;
+  const prior = XK("fuelout").filter(x => x.vehicleId === v.id && x.id !== f.id && Number.isFinite(+x.hours) && (x.date || "") <= (f.date || ""));
+  const prevMax = prior.length ? Math.max(...prior.map(x => +x.hours)) : -1;
+  if (hours < prevMax && !confirm(`قراءة العداد (${fmt(hours)}) أقل من قراءة تفويلة سابقة (${fmt(prevMax)}).\nمتابعة؟`)) return;
+  if (!f.id && hours > (+v.hours || 0)) await S.save("vehicles", { hours, hoursDate: today(), hlog: addHlog(v, hours) }, v.id);   // القراءة أحدث ⇐ نحدّث عداد المعدة
+  await xSave({ kind: "fuelout", name: `تفويل ${v.number} ${fmt(liters)} لتر`, date: f.date, vehicleId: v.id, vehicleNo: v.number, liters, hours, site: cleanName(f.site) || cleanName(v.location), notes: cleanName(f.notes) }, f.id);
+  resetFout();
+}));
+$("#fu-moves").addEventListener("click", ev => {
+  const ed = ev.target.closest("[data-fx-edit]"), dl = ev.target.closest("[data-fx-del]");
+  if (ed) {
+    const x = xGet(ed.dataset.fxEdit); if (!x) return;
+    if (x.kind === "fuelin") xLoad(finF, x, ["date", "liters", "price", "supplier", "notes"], "#fin-cancel", "تعديل وارد سولار");
+    else { fillSel(foutF.elements.vehicleId, vOpts("اختر المعدة", x.vehicleId)); xLoad(foutF, x, ["vehicleId", "date", "liters", "hours", "site", "notes"], "#fout-cancel", "تعديل تفويل"); }
+  }
+  if (dl) { const x = xGet(dl.dataset.fxDel); if (x) removeItem("biz", x.id, "حذف هذه الحركة من التانك؟"); }
+});
+const fuelDoc = () => {
+  const t = tankStats();
+  return { file: "تانك-السولار", title: "تانك السولار المركزي", sections: [
+    { title: "الملخص", head: ["البند", "القيمة"], rows: [{ "البند": "إجمالي الوارد (لتر)", "القيمة": fmt(t.inL) }, { "البند": "إجمالي المنصرف (لتر)", "القيمة": fmt(t.outL) }, { "البند": "الرصيد المتبقي (لتر)", "القيمة": fmt(t.bal) }, { "البند": "متوسط سعر اللتر", "القيمة": t.price ? money(Math.round(t.price * 100) / 100) : "—" }] },
+    { title: "معدل استهلاك المعدات", rows: uniq(XK("fuelout").map(x => x.vehicleId)).map(id => { const v = vById(id), r = lastRate(id), lv = r ? lphLevel(v, r.lph) : ""; return { "المعدة": vLabel(v), "المعدل (لتر/ساعة)": r ? fmt(r.lph) : "—", "المعدل الطبيعي": v && +v.normalLph > 0 ? fmt(v.normalLph) : "—", "الحالة": r ? LVL[lv][1] : "—" }; }) },
+    { title: "حركة التانك", rows: fuelMoves().map(x => ({ "التاريخ": x.date, "العملية": x.t === "in" ? "وارد" : "تفويل", "الطرف / المعدة": x.t === "in" ? (x.supplier || "") : (x.vehicleNo || ""), "الكمية (لتر)": (x.t === "in" ? "+" : "−") + fmt(x.liters), "الرصيد بعد العملية": fmt(x.bal), "عداد الساعات": x.t === "out" ? x.hours : "", "الموقع": x.site || "", "لتر/ساعة": x.rate ? fmt(x.rate.lph) : "", "ملاحظات": x.notes || "" })) }] };
+};
+EXPORTS.fuel = fuelDoc;
+
+/* ================= 2) الإيجارات (مستأجرة من الغير / مؤجرة للغير) ================= */
+const rcF = $("#rc-form"), rlF = $("#rl-form");
+const BASIS = { hour: "بالساعة", day: "باليومية" }, DIR = { in: "مستأجرة من الغير (علينا)", out: "مؤجرة للغير (لنا)" };
+const rcName = c => c.vehicleId ? vLabel(vById(c.vehicleId)) : (c.equipName || "—");
+const resetRc = () => xReset(rcF, "#rc-cancel", { start: today() });
+const resetRl = () => { xReset(rlF, "#rl-cancel", { date: today() }); rlSync(); };
+$("#rc-cancel").onclick = resetRc; $("#rl-cancel").onclick = resetRl;
+function overlapH(d, aMs, bMs) {                  // ساعات عطل ضمن نطاق زمني (العطل المفتوح يُحسب حتى الآن)
+  const s = Date.parse(d.start); if (!Number.isFinite(s)) return 0;
+  const e = d.status === "fixed" && d.end ? Date.parse(d.end) : Date.now();
+  const lo = Math.max(s, aMs), hi = Math.min(e, bMs);
+  return hi > lo ? (hi - lo) / 36e5 : 0;
+}
+function rcCalc(c, from, to) {
+  const lo = [from, c.start].filter(Boolean).sort().pop() || c.start || "";
+  const hi = [to || today(), c.end || "9999-12-31"].sort()[0];
+  const ent = XK("rday").filter(r => r.contractId === c.id && inRng(r.date, lo, hi)).sort(byDate);
+  const gross = c.basis === "day" ? new Set(ent.map(r => r.date)).size : sumBy(ent, r => r.hours);
+  const down = c.vehicleId
+    ? sumBy(XK("downtime").filter(d => d.vehicleId === c.vehicleId), d => overlapH(d, dayStart(lo), dayEnd(hi)))
+    : sumBy(ent, r => r.down);
+  const net = c.basis === "day" ? Math.max(0, gross - down / SETTINGS.rentDayHours) : Math.max(0, gross - down);
+  return { lo, hi, ent, gross, down, net, due: net * (+c.rate || 0) };
+}
+const rcUnit = c => c.basis === "day" ? "يوم" : "ساعة";
+const rcPeriod = () => [$("#rf-from").value, $("#rf-to").value];
+function rlSync() {
+  const c = xGet(rlF.elements.contractId.value), linked = !!(c && c.vehicleId);
+  rlF.elements.down.disabled = linked; if (linked) rlF.elements.down.value = "";
+  $("#rl-hours-lbl").textContent = c && c.basis === "day" ? "ساعات التشغيل (اختياري)" : "ساعات التشغيل";
+  $("#rl-hint").textContent = !c ? "" : (linked ? "المعدة مرتبطة بالأسطول: ساعات التوقف تُحسب تلقائياً من «الأعطال ووقت التوقف» ولا تُدخل هنا. " : "") + (c.basis === "day" ? "الإيجار باليومية: كل تاريخ يُسجَّل يُحتسب يوماً كاملاً (يُخصم منه التوقف). " : "");
+}
+rlF.elements.contractId.onchange = rlSync;
+function renderRent() {
+  const [from, to] = rcPeriod(), cs = XK("rental").sort((a, b) => (b.start || "").localeCompare(a.start || ""));
+  fillSel(rlF.elements.contractId, `<option value="">اختر العقد</option>` + cs.map(c => `<option value="${esc(c.id)}">${esc(rcName(c))} — ${esc(c.party)}</option>`).join(""));
+  rlSync();
+  $("#rc-body").innerHTML = cs.map(c => {
+    const k = rcCalc(c, from, to), out = c.dir === "out", ended = c.end && c.end < today();
+    return `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(rcName(c))}</td><td>${badge(out ? "g" : "o", out ? "مؤجرة للغير" : "مستأجرة")}</td><td>${esc(c.party)}</td><td>${BASIS[c.basis]} · ${fmt(c.rate)}</td>
+      <td class="text-xs">${esc(c.start)} → ${esc(c.end || "مستمر")} ${ended ? badge("s", "منتهي") : ""}</td><td>${fmt(k.gross)} ${rcUnit(c)}</td><td>${fmt(Math.round(k.down * 10) / 10)} س</td><td>${fmt(Math.round(k.net * 100) / 100)} ${rcUnit(c)}</td>
+      <td class="font-extrabold ${out ? "text-green-700" : "text-red-600"}">${money(Math.round(k.due))} <span class="text-xs font-bold">${out ? "(لنا)" : "(علينا)"}</span></td>
+      <td><div class="flex gap-2 text-xs font-bold"><button type="button" data-export="rentst:pdf:${esc(c.id)}" class="text-orange-600">طباعة</button><button type="button" data-export="rentst:xlsx:${esc(c.id)}" class="text-green-700">Excel</button></div></td><td>${actBtns("rc", c.id)}</td></tr>`;
+  }).join("") || noRows(11, "لا توجد عقود. أضف أول عقد إيجار.");
+  $("#rl-body").innerHTML = XK("rday").sort((a, b) => byDate(b, a)).slice(0, 150).map(r => {
+    const c = xGet(r.contractId);
+    return `<tr class="border-b last:border-0"><td class="py-2">${esc(r.date)}</td><td class="font-bold">${c ? `${esc(rcName(c))} — ${esc(c.party)}` : "عقد محذوف"}</td><td>${r.hours ? fmt(r.hours) : "—"}</td><td>${r.down ? fmt(r.down) : (c && c.vehicleId ? "تلقائي" : "—")}</td><td>${esc(r.notes || "")}</td><td>${actBtns("rl", r.id)}</td></tr>`;
+  }).join("") || noRows(6, "لا توجد سجلات يومية.");
+}
+rcF.elements.vehicleId.onchange = () => { if (rcF.elements.vehicleId.value) rcF.elements.equipName.value = ""; };
+rcF.onsubmit = e => guarded(e, mod(async f => {
+  const v = vById(f.vehicleId), equip = cleanName(f.equipName);
+  if (!v && !equip) return alert("اختر معدة من الأسطول أو اكتب اسم المعدة.");
+  const party = smartName(f.party, uniq(XK("rental").map(c => c.party))), rate = toNum(f.rate);
+  if (!party) return alert("اكتب اسم المقاول / المالك.");
+  if (!(rate > 0)) return alert("أدخل السعر.");
+  if (f.end && f.end < f.start) return alert("نهاية العقد قبل بدايته.");
+  await xSave({ kind: "rental", name: `${v ? vLabel(v) : equip} — ${party}`, vehicleId: v ? v.id : "", equipName: v ? "" : equip, dir: f.dir, party, basis: f.basis, rate, start: f.start, end: f.end || "", notes: cleanName(f.notes) }, f.id);
+  resetRc();
+}));
+rlF.onsubmit = e => guarded(e, mod(async f => {
+  const c = xGet(f.contractId); if (!c) return alert("اختر العقد.");
+  const hours = toNum(f.hours) || 0, down = c.vehicleId ? 0 : (toNum(f.down) || 0);
+  if (c.basis === "hour" && !(hours > 0)) return alert("أدخل ساعات التشغيل.");
+  if (hours < 0 || down < 0) return alert("القيم لا يمكن أن تكون سالبة.");
+  if (f.date < c.start || (c.end && f.date > c.end)) return alert("التاريخ خارج مدة العقد.");
+  await xSave({ kind: "rday", name: `${rcName(c)} ${f.date}`, contractId: c.id, date: f.date, hours, down, notes: cleanName(f.notes) }, f.id);
+  resetRl();
+}));
+$("#rc-body").addEventListener("click", async ev => {
+  const ed = ev.target.closest("[data-rc-edit]"), dl = ev.target.closest("[data-rc-del]");
+  if (ed) { const c = xGet(ed.dataset.rcEdit); if (!c) return; fillSel(rcF.elements.vehicleId, vOpts("— معدة من خارج الأسطول —", c.vehicleId)); xLoad(rcF, c, ["vehicleId", "equipName", "dir", "party", "basis", "rate", "start", "end", "notes"], "#rc-cancel", "تعديل عقد إيجار"); }
+  if (dl) {
+    const c = xGet(dl.dataset.rcDel); if (!c) return;
+    const logs = XK("rday").filter(r => r.contractId === c.id);
+    if (!confirm(`حذف عقد ${rcName(c)}${logs.length ? ` وكل سجلاته اليومية (${logs.length})` : ""}؟`)) return;
+    try { for (const r of logs) await S.remove("biz", r.id); await S.remove("biz", c.id); await loadData(); } catch (err) { dbErr(err); }
+  }
+});
+$("#rl-body").addEventListener("click", ev => {
+  const ed = ev.target.closest("[data-rl-edit]"), dl = ev.target.closest("[data-rl-del]");
+  if (ed) { const r = xGet(ed.dataset.rlEdit); if (!r) return; xLoad(rlF, r, ["contractId", "date", "hours", "down", "notes"], "#rl-cancel", "تعديل سجل يومي"); rlSync(); }
+  if (dl) removeItem("biz", dl.dataset.rlDel, "حذف هذا السجل اليومي؟");
+});
+["#rf-from", "#rf-to"].forEach(s => $(s).onchange = renderRent);
+EXPORTS.rent = () => { const [from, to] = rcPeriod(); return { file: "الإيجارات", title: "عقود الإيجار وصافي المستحق", sections: [{ title: `الفترة: ${from || "البداية"} → ${to || today()}`, rows: XK("rental").sort(byDate).map(c => { const k = rcCalc(c, from, to); return { "المعدة": rcName(c), "النوع": DIR[c.dir], "الطرف": c.party, "الحساب": `${BASIS[c.basis]} ${fmt(c.rate)}`, "التشغيل": `${fmt(k.gross)} ${rcUnit(c)}`, "ساعات التوقف": fmt(Math.round(k.down * 10) / 10), "الصافي": `${fmt(Math.round(k.net * 100) / 100)} ${rcUnit(c)}`, "صافي المستحق": Math.round(k.due) }; }) }] }; };
+EXPORTS.rentst = id => {                          // مستخلص عقد إيجار
+  const c = xGet(id); if (!c) return; const [from, to] = rcPeriod(), k = rcCalc(c, from, to), out = c.dir === "out";
+  return { file: `مستخلص-${rcName(c)}`, title: `مستخلص إيجار — ${rcName(c)}`, sections: [
+    { title: "بيانات العقد", head: ["البند", "القيمة"], rows: [{ "البند": "المعدة", "القيمة": rcName(c) }, { "البند": "نوع الإيجار", "القيمة": DIR[c.dir] }, { "البند": out ? "المستأجر" : "المالك / المقاول", "القيمة": c.party }, { "البند": "نظام الحساب", "القيمة": `${BASIS[c.basis]} — ${fmt(c.rate)} ${SETTINGS.currency}` }, { "البند": "فترة المستخلص", "القيمة": `${k.lo} → ${k.hi}` }] },
+    { title: "السجل اليومي", head: ["التاريخ", "ساعات التشغيل", "ساعات التوقف", "ملاحظات"], rows: k.ent.map(r => ({ "التاريخ": r.date, "ساعات التشغيل": r.hours || "", "ساعات التوقف": c.vehicleId ? "" : (r.down || ""), "ملاحظات": r.notes || "" })) },
+    { title: "الحساب", head: ["البند", "القيمة"], rows: [{ "البند": c.basis === "day" ? "إجمالي أيام التشغيل" : "إجمالي ساعات التشغيل", "القيمة": `${fmt(k.gross)} ${rcUnit(c)}` }, { "البند": "ساعات التوقف المخصومة" + (c.vehicleId ? " (من سجل الأعطال)" : ""), "القيمة": `${fmt(Math.round(k.down * 10) / 10)} ساعة${c.basis === "day" ? ` (= ${fmt(Math.round(k.down / SETTINGS.rentDayHours * 100) / 100)} يوم)` : ""}` }, { "البند": "الصافي", "القيمة": `${fmt(Math.round(k.net * 100) / 100)} ${rcUnit(c)}` }, { "البند": `صافي المستحق ${out ? "لنا" : "علينا"}`, "القيمة": money(Math.round(k.due)) }] }],
+    footer: `<div class="sig"><div>توقيع الطرف الأول</div><div>توقيع الطرف الثاني</div></div>` };
+};
+
+/* ================= 3) الأعطال ووقت التوقف ================= */
+const dnF = $("#dn-form");
+const resetDn = () => xReset(dnF, "#dn-cancel", { start: nowLocal(), status: "open" });
+$("#dn-cancel").onclick = resetDn;
+const dtH = d => overlapH(d, -Infinity, Infinity);
+const dtOpen = () => XK("downtime").filter(d => d.status !== "fixed");
+const dtTotal = vid => sumBy(XK("downtime").filter(d => d.vehicleId === vid), dtH);
+const monthRange = mk => { const [y, m] = mk.split("-").map(Number); return [Date.parse(`${mk}-01T00:00:00`), Date.parse(`${m === 12 ? y + 1 : y}-${pad2(m === 12 ? 1 : m + 1)}-01T00:00:00`)]; };
+const dtMonth = (vid, mk) => { const [a, b] = monthRange(mk); return sumBy(XK("downtime").filter(d => !vid || d.vehicleId === vid), d => overlapH(d, a, b)); };
+const monthsBack = n => Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - (n - 1 - i)); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; });
+function dtStats(mk) {
+  const [a, b] = monthRange(mk);
+  return vehicles.map(v => { const rows = XK("downtime").filter(d => d.vehicleId === v.id && overlapH(d, a, b) > 0); return { v, n: rows.length, h: sumBy(rows, d => overlapH(d, a, b)) }; }).filter(r => r.n).sort((x, y) => y.h - x.h);
+}
+function renderDown() {
+  const mk = $("#dn-month").value || today().slice(0, 7);
+  $("#dn-open").textContent = dtOpen().length; $("#dn-month-h").textContent = fmt(Math.round(dtMonth("", today().slice(0, 7)) * 10) / 10); $("#dn-total-h").textContent = fmt(Math.round(sumBy(XK("downtime"), dtH) * 10) / 10);
+  const st = dtStats(mk);
+  $("#dn-stats").innerHTML = st.map(r => `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(vLabel(r.v))}</td><td>${r.n}</td><td class="font-bold">${hrs(r.h)}</td></tr>`).join("") + (st.length ? `<tr class="font-extrabold"><td class="py-2">الإجمالي</td><td>${sumBy(st, r => r.n)}</td><td>${hrs(sumBy(st, r => r.h))}</td></tr>` : noRows(3, "لا توجد أعطال في هذا الشهر."));
+  const ms = monthsBack(6);
+  $("#dn-months-h").innerHTML = ms.map(m => `<th class="py-2">${m}</th>`).join(""); $("#dn-months-b").innerHTML = ms.map(m => `<td class="font-bold">${hrs(dtMonth("", m))}</td>`).join("");
+  $("#dn-body").innerHTML = XK("downtime").sort((a, b) => (b.start || "").localeCompare(a.start || "")).map(d => {
+    const open = d.status !== "fixed", v = vById(d.vehicleId);
+    return `<tr class="border-b last:border-0 ${open ? "bg-orange-50" : ""}"><td class="py-2 font-bold">${esc(d.vehicleNo || vLabel(v))}</td><td>${esc(d.site || "—")}</td><td class="text-xs">${esc((d.start || "").replace("T", " "))}</td><td class="text-xs">${open ? "—" : esc((d.end || "").replace("T", " "))}</td><td class="font-bold">${hrs(dtH(d))}${open ? " (مستمر)" : ""}</td><td>${esc(d.cause || "")}</td><td>${open ? badge("o", "قيد الإصلاح") : badge("g", "تم الإصلاح")}</td>
+      <td><div class="flex gap-3 items-center">${open ? `<button type="button" data-dn-fix="${esc(d.id)}" class="text-green-700 text-xs font-bold">تم الإصلاح</button>` : ""}${actBtns("dn", d.id)}</div></td></tr>`;
+  }).join("") || noRows(8, "لا توجد أعطال مسجلة.");
+}
+dnF.elements.vehicleId.onchange = () => { const v = vById(dnF.elements.vehicleId.value); if (v && !dnF.elements.id.value && !dnF.elements.site.value) dnF.elements.site.value = v.location || ""; };
+dnF.onsubmit = e => guarded(e, mod(async f => {
+  const v = vById(f.vehicleId); if (!v) return alert("اختر المعدة.");
+  const cause = cleanName(f.cause); if (!cause) return alert("اكتب سبب العطل.");
+  if (f.status === "fixed") {
+    if (!f.end) return alert("أدخل وقت الإصلاح (نهاية العطل) أو اجعل الحالة «قيد الإصلاح».");
+    if (Date.parse(f.end) < Date.parse(f.start)) return alert("وقت الإصلاح قبل بداية العطل.");
+  }
+  await xSave({ kind: "downtime", name: `عطل ${v.number} — ${cause}`, vehicleId: v.id, vehicleNo: v.number, site: cleanName(f.site) || cleanName(v.location), start: f.start, end: f.status === "fixed" ? f.end : "", cause, status: f.status, date: f.start.slice(0, 10) }, f.id);
+  resetDn();
+}));
+$("#dn-body").addEventListener("click", mod(async ev => {
+  const ed = ev.target.closest("[data-dn-edit]"), dl = ev.target.closest("[data-dn-del]"), fx = ev.target.closest("[data-dn-fix]");
+  if (ed) { const d = xGet(ed.dataset.dnEdit); if (!d) return; fillSel(dnF.elements.vehicleId, vOpts("اختر المعدة", d.vehicleId)); xLoad(dnF, d, ["vehicleId", "site", "start", "end", "cause", "status"], "#dn-cancel", "تعديل عطل"); }
+  if (dl) removeItem("biz", dl.dataset.dnDel, "حذف سجل العطل؟");
+  if (fx) { const d = xGet(fx.dataset.dnFix); if (!d) return; await S.save("biz", { status: "fixed", end: nowLocal() }, d.id); await loadData(); }
+}));
+$("#dn-month").onchange = renderDown;
+EXPORTS.down = () => { const mk = $("#dn-month").value || today().slice(0, 7); return { file: "الأعطال-ووقت-التوقف", title: "سجل الأعطال ووقت التوقف", sections: [
+  { title: `إحصائيات شهر ${mk}`, rows: dtStats(mk).map(r => ({ "المعدة": vLabel(r.v), "عدد الأعطال": r.n, "ساعات التوقف": Math.round(r.h * 10) / 10 })) },
+  { title: "إجمالي ساعات التوقف لكل معدة", rows: vehicles.filter(v => dtTotal(v.id) > 0).map(v => ({ "المعدة": vLabel(v), "الإجمالي (ساعة)": Math.round(dtTotal(v.id) * 10) / 10 })) },
+  { title: "سجل الأعطال", rows: XK("downtime").sort((a, b) => (b.start || "").localeCompare(a.start || "")).map(d => ({ "المعدة": d.vehicleNo || "", "الموقع": d.site || "", "بداية العطل": (d.start || "").replace("T", " "), "الإصلاح": d.status === "fixed" ? (d.end || "").replace("T", " ") : "", "المدة (ساعة)": Math.round(dtH(d) * 10) / 10, "السبب": d.cause || "", "الحالة": d.status === "fixed" ? "تم الإصلاح" : "قيد الإصلاح" })) }] }; };
+
+/* ================= 4) الكاوتش والبطاريات بالرقم التسلسلي ================= */
+const ptF = $("#pt-form"), peF = $("#pt-end-form"), peM = $("#pt-end-modal"), phM = $("#pt-hist-modal");
+const PT = { tire: "كاوتش", battery: "بطارية" }, PS = { installed: ["g", "مركّبة"], removed: ["o", "تم استبدالها"], scrapped: ["r", "مكهّنة"] };
+const resetPt = () => xReset(ptF, "#pt-cancel", { installDate: today(), ptype: "tire" });
+$("#pt-cancel").onclick = resetPt;
+function ptRun(p) {                               // ساعات التشغيل المقطوعة: (عداد النهاية أو عداد المعدة الحالي) − عداد التركيب
+  const end = p.status === "installed" ? (+(vById(p.vehicleId) || {}).hours || +p.installHours) : +p.endHours;
+  return Math.max(0, (Number.isFinite(end) ? end : +p.installHours) - (+p.installHours || 0));
+}
+const ptFiltered = () => {
+  const q = serKey($("#pt-q").value), t = $("#pt-type").value, s = $("#pt-status").value;
+  return XK("part").filter(p => (!t || p.ptype === t) && (!s || p.status === s) && (!q || serKey(`${p.serial} ${p.vehicleNo} ${p.position}`).includes(q)))
+    .sort((a, b) => (a.status === "installed" ? 0 : 1) - (b.status === "installed" ? 0 : 1) || (b.installDate || "").localeCompare(a.installDate || ""));
+};
+function renderParts() {
+  fillSel(ptF.elements.vehicleId, vOpts("اختر المعدة"));
+  const rows = ptFiltered(), all = XK("part");
+  $("#pt-count").textContent = `${rows.length} من ${all.length} قطعة · مركّبة حالياً: ${all.filter(p => p.status === "installed").length}`;
+  $("#pt-body").innerHTML = rows.map(p => {
+    const run = ptRun(p), [c, tx] = PS[p.status] || PS.installed;
+    return `<tr class="border-b last:border-0"><td class="py-2">${badge("s", PT[p.ptype] || "")}</td><td class="font-bold" dir="ltr">${esc(p.serial)}</td><td dir="ltr">${esc(p.size || "—")}</td><td>${esc(p.vehicleNo || vLabel(vById(p.vehicleId)))}${p.position ? ` · ${esc(p.position)}` : ""}</td><td class="text-xs">${esc(p.installDate)}</td><td>${fmt(p.installHours)}</td>
+      <td>${badge(c, tx)}${p.status !== "installed" ? `<div class="text-xs text-slate-500">${esc(p.endDate || "")}${p.endReason ? ` · ${esc(p.endReason)}` : ""}</div>` : ""}</td><td class="font-extrabold">${fmt(run)} ساعة</td><td>${+p.cost > 0 && run > 0 ? fmt(Math.round(p.cost / run * 100) / 100) : "—"}</td>
+      <td><div class="flex gap-3 items-center">${p.status === "installed" ? `<button type="button" data-pt-end="${esc(p.id)}" class="text-green-700 text-xs font-bold">استبدال / تكهين</button>` : ""}<button type="button" data-pt-hist="${esc(p.id)}" class="text-slate-600 text-xs font-bold">السجل</button>${actBtns("pt", p.id)}</div></td></tr>`;
+  }).join("") || noRows(10, "لا توجد قطع مسجلة.");
+}
+ptF.elements.vehicleId.onchange = () => { const v = vById(ptF.elements.vehicleId.value); if (v && !ptF.elements.id.value && !ptF.elements.installHours.value) ptF.elements.installHours.value = v.hours ?? ""; };
+ptF.onsubmit = e => guarded(e, mod(async f => {
+  const v = vById(f.vehicleId); if (!v) return alert("اختر المعدة.");
+  const serial = cleanName(f.serial); if (!serial) return alert("أدخل الرقم التسلسلي.");
+  const ih = toNum(f.installHours); if (ih == null || ih < 0) return alert("أدخل عداد ساعات المعدة وقت التركيب.");
+  const old = f.id ? xGet(f.id) : null;
+  if ((!old || old.status === "installed") && XK("part").some(p => p.id !== f.id && p.status === "installed" && serKey(p.serial) === serKey(serial)))
+    return alert("هذا الرقم التسلسلي مركّب حالياً على معدة أخرى. اسحبه أو كهّنه أولاً من «استبدال / تكهين».");
+  await xSave({ kind: "part", name: `${PT[f.ptype]} ${serial} على ${v.number}`, ptype: f.ptype, serial, size: cleanName(f.size), cost: toNum(f.cost) || 0, vehicleId: v.id, vehicleNo: v.number, position: cleanName(f.position), installDate: f.installDate, installHours: ih, notes: cleanName(f.notes), ...(old ? {} : { status: "installed" }) }, f.id);
+  resetPt();
+}));
+$("#pt-body").addEventListener("click", ev => {
+  const ed = ev.target.closest("[data-pt-edit]"), dl = ev.target.closest("[data-pt-del]"), en = ev.target.closest("[data-pt-end]"), hs = ev.target.closest("[data-pt-hist]");
+  if (ed) { const p = xGet(ed.dataset.ptEdit); if (!p) return; fillSel(ptF.elements.vehicleId, vOpts("اختر المعدة", p.vehicleId)); xLoad(ptF, p, ["ptype", "serial", "size", "cost", "vehicleId", "position", "installDate", "installHours", "notes"], "#pt-cancel", "تعديل قطعة"); }
+  if (dl) removeItem("biz", dl.dataset.ptDel, "حذف هذه القطعة وسجلها؟");
+  if (en) {
+    const p = xGet(en.dataset.ptEnd); if (!p) return; peF.reset(); peF.elements.id.value = p.id;
+    $("#pt-end-title").textContent = `استبدال / تكهين ${PT[p.ptype]} ${p.serial}`;
+    peF.elements.endDate.value = today(); peF.elements.endHours.value = (vById(p.vehicleId) || {}).hours ?? p.installHours; peM.classList.remove("hidden");
+  }
+  if (hs) {
+    const p = xGet(hs.dataset.ptHist); if (!p) return;
+    const rows = XK("part").filter(x => serKey(x.serial) === serKey(p.serial)).sort((a, b) => (a.installDate || "").localeCompare(b.installDate || ""));
+    $("#pt-hist-title").textContent = `سجل ${PT[p.ptype]} — ${p.serial}`;
+    $("#pt-hist-sum").textContent = `إجمالي الساعات المقطوعة: ${fmt(sumBy(rows, ptRun))} ساعة على ${rows.length} فترة تركيب`;
+    $("#pt-hist-body").innerHTML = rows.map(x => `<tr class="border-b last:border-0"><td class="py-2">${esc(x.vehicleNo || "")}${x.position ? ` · ${esc(x.position)}` : ""}</td><td>${esc(x.installDate)} (${fmt(x.installHours)})</td><td>${x.status === "installed" ? "—" : `${esc(x.endDate || "")} (${fmt(x.endHours)})`}</td><td class="font-bold">${fmt(ptRun(x))}</td><td>${badge(...PS[x.status] || PS.installed)}</td></tr>`).join("");
+    phM.classList.remove("hidden");
+  }
+});
+const closePe = () => peM.classList.add("hidden");
+$("#pt-end-cancel").onclick = closePe; peM.onmousedown = ev => { if (ev.target === peM) closePe(); };
+$("#pt-hist-x").onclick = () => phM.classList.add("hidden"); phM.onmousedown = ev => { if (ev.target === phM) phM.classList.add("hidden"); };
+peF.onsubmit = e => guarded(e, mod(async f => {
+  const p = xGet(f.id); if (!p) return closePe();
+  const eh = toNum(f.endHours); if (eh == null || eh < (+p.installHours || 0)) return alert("عداد النهاية لا يمكن أن يكون أقل من عداد التركيب.");
+  await S.save("biz", { status: f.status, endDate: f.endDate, endHours: eh, endReason: cleanName(f.endReason) }, p.id);
+  closePe(); await loadData();
+}));
+["#pt-q", "#pt-type", "#pt-status"].forEach(s => $(s).addEventListener("input", renderParts));
+EXPORTS.parts = () => ({ file: "الكاوتش-والبطاريات", title: "الكاوتش والبطاريات بالرقم التسلسلي", sections: [{ title: "القطع", rows: ptFiltered().map(p => ({ "النوع": PT[p.ptype], "Serial": p.serial, "المقاس / القدرة": p.size || "", "المعدة": p.vehicleNo || "", "الموضع": p.position || "", "تاريخ التركيب": p.installDate, "عداد التركيب": p.installHours, "الحالة": (PS[p.status] || PS.installed)[1], "تاريخ النهاية": p.endDate || "", "عداد النهاية": p.status === "installed" ? "" : p.endHours, "ساعات التشغيل المقطوعة": Math.round(ptRun(p) * 10) / 10, "التكلفة": p.cost || 0, "السبب": p.endReason || "" })) }] });
+
+/* ================= 5) الإنتاج وتكلفة الوحدة (المتر / الطن) ================= */
+const pdF = $("#pd-form"), mvF = $("#mv-form");
+const PU = { m3: "م³ خرسانة", ton: "طن أسفلت", meter: "متر أسفلت" }, PU_SHORT = { m3: "م³", ton: "طن", meter: "متر" };
+const resetPd = () => xReset(pdF, "#pd-cancel", { date: today(), unit: "m3" });
+$("#pd-cancel").onclick = resetPd;
+function siteCost(site, from, to) {
+  const same = s => normAr(s) === normAr(site);
+  const outs = XK("fuelout").filter(x => same(x.site) && inRng(x.date, from, to));
+  const liters = sumBy(outs, x => x.liters), tankCost = sumBy(outs, x => x.liters * priceAt(x.date));
+  const fuelExp = sumBy(expenses.filter(e => e.category === "fuel" && same(e.project) && inRng(e.date, from, to)), e => e.amount);
+  const rates = fuelRates(); let mh = 0, mcost = 0;                   // ساعات المعدات: فرق العداد بين تفويلتين يُنسب لموقع التفويلة الأحدث
+  outs.forEach(x => { const r = rates[x.id]; if (r) { mh += r.dh; mcost += r.dh * (+(vById(x.vehicleId) || {}).hourRate || 0); } });
+  const adv = sumBy(advances.filter(a => same(a.project)).flatMap(a => (a.items || []).filter(i => inRng(i.date, from, to))), i => i.amount);
+  const vIds = new Set(vehicles.filter(v => same(v.location)).map(v => v.id));
+  const maint = sumBy(expenses.filter(e => e.category !== "fuel" && same(e.project) && inRng(e.date, from, to)), e => e.amount)
+    + sumBy(XK("maint").filter(m => vIds.has(m.vehicleId) && inRng(m.date, from, to)), m => m.cost);
+  const units = {}; XK("prod").filter(p => same(p.site) && inRng(p.date, from, to)).forEach(p => { units[p.unit] = (units[p.unit] || 0) + (+p.qty || 0); });
+  const fuel = tankCost + fuelExp, total = fuel + mcost + adv + maint, keys = Object.keys(units);
+  return { site, liters, fuel, mh, mcost, adv, maint, total, units, cpu: keys.length === 1 && units[keys[0]] > 0 ? { unit: keys[0], v: total / units[keys[0]] } : null };
+}
+function costSites(from, to) {
+  const pick = $("#pc-site").value, sites = pick ? [pick] : knownSites();
+  return sites.map(s => siteCost(s, from, to)).filter(r => r.total > 0 || Object.keys(r.units).length).sort((a, b) => b.total - a.total);
+}
+const unitsTxt = u => Object.entries(u).map(([k, q]) => `${fmt(q)} ${PU_SHORT[k] || k}`).join(" + ") || "—";
+function renderProd() {
+  const sites = knownSites();
+  fillSel($("#pc-site"), `<option value="">كل المواقع</option>` + sites.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join(""));
+  fillSel(mvF.elements.vehicleId, vOpts("اختر المعدة"));
+  const g = {}; activeVehicles().forEach(v => { const k = cleanName(v.location) || "بدون موقع"; (g[k] ||= []).push(v.number); });
+  $("#mv-list").innerHTML = Object.entries(g).map(([s, a]) => `<div><b>${esc(s)}:</b> ${a.map(esc).join("، ")}</div>`).join("") || "لا توجد معدات.";
+  const from = $("#pc-from").value, to = $("#pc-to").value;
+  $("#pc-body").innerHTML = costSites(from, to).map(r => `<tr class="border-b last:border-0"><td class="py-2 font-bold">${esc(r.site)}</td><td>${unitsTxt(r.units)}</td><td>${money(Math.round(r.fuel))}<div class="text-xs text-slate-500">${fmt(r.liters)} لتر من التانك</div></td>
+      <td>${money(Math.round(r.mcost))}<div class="text-xs text-slate-500">${fmt(Math.round(r.mh * 10) / 10)} ساعة</div></td><td>${money(Math.round(r.adv))}</td><td>${money(Math.round(r.maint))}</td><td class="font-bold">${money(Math.round(r.total))}</td>
+      <td class="font-extrabold text-orange-600">${r.cpu ? `${money(Math.round(r.cpu.v * 100) / 100)} / ${PU_SHORT[r.cpu.unit]}` : Object.keys(r.units).length > 1 ? "وحدات مختلطة: فصّل الفترة أو الموقع" : "لا يوجد إنتاج"}</td></tr>`).join("") || noRows(8, "لا توجد بيانات في هذه الفترة. سجّل الإنتاج والتفويل والمصروفات بنفس اسم الموقع.");
+  $("#pd-body").innerHTML = XK("prod").sort((a, b) => byDate(b, a)).slice(0, 200).map(p => `<tr class="border-b last:border-0"><td class="py-2">${esc(p.date)}</td><td class="font-bold">${esc(p.site)}</td><td>${fmt(p.qty)} ${PU[p.unit] || ""}</td><td>${esc(p.notes || "")}</td><td>${actBtns("pd", p.id)}</td></tr>`).join("") || noRows(5, "لا يوجد إنتاج مسجل.");
+}
+pdF.onsubmit = e => guarded(e, mod(async f => {
+  const site = smartName(f.site, knownSites()); if (!site) return alert("أدخل اسم الموقع.");
+  const qty = toNum(f.qty); if (!(qty > 0)) return alert("أدخل كمية الإنتاج.");
+  await xSave({ kind: "prod", name: `إنتاج ${site} ${fmt(qty)} ${PU_SHORT[f.unit]}`, site, date: f.date, qty, unit: f.unit, notes: cleanName(f.notes) }, f.id);
+  resetPd();
+}));
+mvF.onsubmit = e => guarded(e, mod(async f => {
+  const v = vById(f.vehicleId); if (!v) return alert("اختر المعدة.");
+  const site = smartName(f.site, knownSites()); if (!site) return alert("أدخل الموقع.");
+  await S.save("vehicles", { location: site }, v.id); mvF.elements.site.value = ""; await loadData();
+}));
+$("#pd-body").addEventListener("click", ev => {
+  const ed = ev.target.closest("[data-pd-edit]"), dl = ev.target.closest("[data-pd-del]");
+  if (ed) { const p = xGet(ed.dataset.pdEdit); if (p) xLoad(pdF, p, ["site", "date", "qty", "unit", "notes"], "#pd-cancel", "تعديل إنتاج"); }
+  if (dl) removeItem("biz", dl.dataset.pdDel, "حذف سجل الإنتاج؟");
+});
+["#pc-site", "#pc-from", "#pc-to"].forEach(s => $(s).onchange = renderProd);
+EXPORTS.prod = () => { const from = $("#pc-from").value, to = $("#pc-to").value; return { file: "الإنتاج-وتكلفة-الوحدة", title: "الإنتاج وتكلفة الوحدة", sections: [
+  { title: `تكلفة المواقع (${from || "البداية"} → ${to || today()})`, rows: costSites(from, to).map(r => ({ "الموقع": r.site, "الإنتاج": unitsTxt(r.units), "السولار": Math.round(r.fuel), "لترات التانك": Math.round(r.liters), "ساعات المعدات": Math.round(r.mh * 10) / 10, "تكلفة ساعات المعدات": Math.round(r.mcost), "العُهد": Math.round(r.adv), "الصيانة": Math.round(r.maint), "الإجمالي": Math.round(r.total), "التكلفة الفعلية للوحدة": r.cpu ? `${fmt(Math.round(r.cpu.v * 100) / 100)} / ${PU_SHORT[r.cpu.unit]}` : "—" })) },
+  { title: "سجل الإنتاج", rows: XK("prod").sort(byDate).map(p => ({ "التاريخ": p.date, "الموقع": p.site, "الكمية": p.qty, "الوحدة": PU[p.unit] || "", "ملاحظات": p.notes || "" })) }] }; };
+
+/* ================= 6) الوثائق والتراخيص ================= */
+const DOC_DEFS = [["licenseExpiry", "رخصة التسيير"], ["insuranceExpiry", "التأمين"], ["calibrationExpiry", "شهادة المعايرة"], ["inspectionExpiry", "الفحص الفني"]];
+function docAlerts() {                            // منتهية أو تنتهي خلال licenseWarnDays (30 يوماً)
+  const out = [], add = (who, label, date) => { const n = date ? daysUntil(date) : null; if (n !== null && n <= SETTINGS.licenseWarnDays) out.push({ who, label, date, days: n }); };
+  activeVehicles().forEach(v => DOC_DEFS.forEach(([k, l]) => add(v.number, l, v[k])));
+  XK("driver").forEach(d => add(d.name, "رخصة السائق", d.licExp));
+  return out.sort((a, b) => a.days - b.days);
+}
+const docTxt = d => d.days < 0 ? `منتهية منذ ${num(-d.days)} يوم` : d.days === 0 ? "تنتهي اليوم" : `تنتهي خلال ${num(d.days)} يوم`;
+function renderDocs() {
+  const list = docAlerts();
+  $("#docs-list").innerHTML = list.map(d => `<div class="flex items-center justify-between gap-2 p-2 rounded-xl ${d.days < 0 ? "bg-red-50" : "bg-orange-50"}"><div><b>${esc(d.who)}</b> — ${esc(d.label)}</div><div class="text-sm font-bold ${d.days < 0 ? "text-red-600" : "text-orange-600"}">${docTxt(d)} <span class="font-normal text-slate-500">(${esc(d.date)})</span></div></div>`).join("")
+    || `<p class="text-sm text-green-700 font-bold"><i class="fa-solid fa-circle-check ml-1"></i>كل الوثائق سارية لأكثر من ${SETTINGS.licenseWarnDays} يوماً.</p>`;
+}
+
+/* ================= الرئيسية: مؤشرات + شريط التنبيهات + تقرير واتساب ================= */
+function renderXKpis() {
+  const t = tankStats(), open = dtOpen().length;
+  $("#k-tank").textContent = `${fmt(t.bal)} لتر`; $("#k-down").textContent = open;
+  $("#k-tank").closest(".kpi").classList.toggle("warn", t.bal < SETTINGS.tankLowLiters);
+  $("#k-down").closest(".kpi").classList.toggle("warn", open > 0);
+}
+function alertChips() {                           // مصدر واحد للتنبيهات: الشريط + تقرير واتساب
+  const chips = [];
+  activeVehicles().filter(v => oilLeft(v) < SETTINGS.oilAlertHours).sort((x, y) => oilLeft(x) - oilLeft(y)).forEach(v => {
+    const l = oilLeft(v);
+    chips.push({ go: "readings", sev: l <= 0 ? 2 : 1, icon: "fa-oil-can", t: `${v.number} — ${l < 0 ? `تجاوز موعد الزيت بـ ${num(-l)} ساعة` : l === 0 ? "موعد الزيت الآن" : `متبقي ${num(l)} ساعة للزيت`}` });
+  });
+  if (!pageOff("advances")) advances.filter(a => a.status === "open").sort((x, y) => (x.date || "").localeCompare(y.date || "")).forEach(a => {
+    const d = a.date ? ageOf(a.date) : 0;
+    chips.push({ go: "advances", sev: d > SETTINGS.advWarnDays ? 2 : 1, icon: "fa-hand-holding-dollar", t: `عهدة ${a.driver} مفتوحة غير مصفّاة${d ? ` منذ ${d} يوم` : ""} — المتبقي ${money(advBal(a))}` });
+  });
+  const docs = docAlerts();
+  docs.slice(0, 4).forEach(d => chips.push({ go: "docs", sev: d.days < 0 ? 2 : 1, icon: "fa-file-shield", t: `${d.who} — ${d.label} ${docTxt(d)}` }));
+  if (docs.length > 4) chips.push({ go: "docs", sev: 1, icon: "fa-file-shield", t: `و ${docs.length - 4} وثيقة أخرى تحتاج تجديداً` });
+  if (!pageOff("fuel")) {
+    const t = tankStats();
+    if (XK("fuelin").length || XK("fuelout").length) if (t.bal < SETTINGS.tankLowLiters) chips.push({ go: "fuel", sev: 2, icon: "fa-gas-pump", t: `رصيد تانك السولار ${fmt(t.bal)} لتر (أقل من ${fmt(SETTINGS.tankLowLiters)})` });
+    activeVehicles().forEach(v => { const r = lastRate(v.id); if (r && lphLevel(v, r.lph) === "red") chips.push({ go: "fuel", sev: 2, icon: "fa-gauge-high", t: `${v.number} — استهلاك ${fmt(r.lph)} لتر/ساعة أعلى من الطبيعي (${fmt(v.normalLph)})` }); });
+  }
+  return chips;
+}
+function renderAlertStrip() {
+  const el = $("#alert-strip"); if (!el) return;
+  const chips = alertChips(), red = chips.some(c => c.sev === 2);
+  el.className = "no-print rounded-2xl border p-3 " + (!chips.length ? "bg-green-50 border-green-200 text-green-800" : red ? "bg-red-50 border-red-200" : "bg-orange-50 border-orange-200");
+  el.innerHTML = !chips.length
+    ? `<i class="fa-solid fa-circle-check ml-2"></i><b>لا توجد تنبيهات عاجلة:</b> لا زيت قارب على الاستحقاق ولا عهد مفتوحة ولا وثائق منتهية.`
+    : `<div class="flex items-center gap-2 font-extrabold mb-2 ${red ? "text-red-700" : "text-orange-700"}"><i class="fa-solid fa-bell"></i>تنبيهات تحتاج متابعة (${chips.length})</div>
+       <div class="flex flex-wrap gap-2">${chips.map(c => `<button type="button" data-alert-go="${c.go}" class="text-xs sm:text-sm font-bold rounded-full px-3 py-1.5 border ${c.sev === 2 ? "bg-red-100 text-red-800 border-red-300" : "bg-white text-orange-800 border-orange-300"}"><i class="fa-solid ${c.icon} ml-1"></i>${esc(c.t)}</button>`).join("")}</div>`;
+}
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("[data-alert-go]"); if (!b) return;
+  if (b.dataset.alertGo === "docs") { show("dashboard"); setTimeout(() => $("#docs-card").scrollIntoView({ behavior: "smooth", block: "center" }), 60); } else show(b.dataset.alertGo);
+});
+
+function fleetHoursToday() {                      // فرق قراءة اليوم عن آخر قراءة سابقة لكل معدة (من hlog)
+  let tot = 0, n = 0;
+  activeVehicles().forEach(v => { const log = v.hlog || [], cur = log.find(x => x.d === today()), prev = log.filter(x => x.d < today()).pop(); if (cur && prev && cur.h > prev.h) { tot += cur.h - prev.h; n++; } });
+  return { tot, n };
+}
+function stoppedNow() {
+  const m = new Map();
+  activeVehicles().filter(v => v.status !== "active").forEach(v => m.set(v.id, `${v.number} — ${statusName(v.status)}`));
+  dtOpen().forEach(d => { const v = vById(d.vehicleId); if (v && !v.archived) m.set(d.vehicleId, `${v.number} — ${d.cause || "عطل"} (منذ ${hrs(dtH(d))})`); });
+  return [...m.values()];
+}
+function dailyReport() {
+  const fh = fleetHoursToday(), stop = stoppedNow(), t = tankStats(), advToday = advances.filter(a => a.date === today()), chips = alertChips();
+  const dt = new Date().toLocaleDateString("ar-EG", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  const fuelToday = sumBy(XK("fuelout").filter(x => x.date === today()), x => x.liters);
+  return [
+    "📋 *تقرير اليوم — شركة فوزي عبده*", `📅 ${dt}`, "━━━━━━━━━━━━━━",
+    `⏱️ *ساعات تشغيل الأسطول اليوم:* ${fh.n ? `${hrs(fh.tot)} (${fh.n} معدة)` : "لا توجد قراءات عدادات مسجلة اليوم"}`,
+    `🛑 *المعدات المتوقفة / المعطلة (${stop.length}):*`, ...(stop.length ? stop.map(s => `   • ${s}`) : ["   • لا توجد معدات متوقفة"]),
+    `⛽ *رصيد تانك السولار:* ${fmt(t.bal)} لتر${fuelToday ? ` (المنصرف اليوم ${fmt(fuelToday)} لتر)` : ""}`,
+    `💵 *العُهد المصروفة اليوم:* ${advToday.length ? `${money(sumBy(advToday, a => a.amount))} (${advToday.length} عهدة)` : "لا يوجد"}`,
+    `⚠️ *تنبيهات عاجلة (${chips.length}):*`, ...(chips.length ? chips.map(c => `   • ${c.t}`) : ["   • لا توجد تنبيهات عاجلة"]),
+    "━━━━━━━━━━━━━━", "_تم الإنشاء من نظام إدارة الأسطول_"
+  ].join("\n");
+}
+const waM = $("#wa-modal");
+$("#wa-report-btn").onclick = () => { $("#wa-text").value = dailyReport(); waM.classList.remove("hidden"); $("#wa-text").focus(); };
+$("#wa-x").onclick = () => waM.classList.add("hidden"); waM.onmousedown = ev => { if (ev.target === waM) waM.classList.add("hidden"); };
+$("#wa-open").onclick = () => window.open(`https://wa.me/?text=${encodeURIComponent($("#wa-text").value)}`, "_blank", "noopener");
+$("#wa-copy").onclick = async () => {
+  const ta = $("#wa-text"), b = $("#wa-copy"), ok = () => { b.innerHTML = '<i class="fa-solid fa-check ml-2"></i>تم النسخ'; setTimeout(() => { b.innerHTML = '<i class="fa-solid fa-copy ml-2"></i>نسخ النص'; }, 1800); };
+  try { await navigator.clipboard.writeText(ta.value); ok(); }
+  catch (e) { ta.select(); try { document.execCommand("copy") ? ok() : alert("انسخ النص يدوياً."); } catch (e2) { alert("انسخ النص يدوياً."); } }
+};
+
+/* ---- بطاقة المعدة: ساعات التوقف + معدل استهلاك التانك ---- */
+function vehicleExtra(v) {
+  const tot = dtTotal(v.id), mo = dtMonth(v.id, today().slice(0, 7)), r = lastRate(v.id), lv = r ? lphLevel(v, r.lph) : "";
+  return (tot > 0 ? `<div>ساعات التوقف: ${hrs(tot)}${mo > 0 ? ` · هذا الشهر ${hrs(mo)}` : ""}</div>` : "")
+    + (r ? `<div>استهلاك التانك: <span class="${lv === "red" ? "text-red-600 font-bold" : lv === "orange" ? "text-orange-600 font-bold" : ""}">${fmt(r.lph)} لتر/ساعة</span>${+v.normalLph > 0 ? ` (الطبيعي ${fmt(v.normalLph)})` : ""}</div>` : "");
+}
+
+/* ---- ربط كل شيء: القوائم + العرض + الصفحات ---- */
+function renderNew() {
+  $("#dl-sites").innerHTML = knownSites().map(s => `<option value="${esc(s)}">`).join("");
+  fillSel(foutF.elements.vehicleId, vOpts("اختر المعدة")); fillSel(rcF.elements.vehicleId, vOpts("— معدة من خارج الأسطول —")); fillSel(dnF.elements.vehicleId, vOpts("اختر المعدة"));
+  [renderFuel, renderRent, renderDown, renderParts, renderProd, renderDocs, renderXKpis, xWarn].forEach(fn => { try { fn(); } catch (err) { console.error(fn.name, err); } });
+}
+Object.assign(VIEW_HOOKS, { fuel: renderNew, rent: renderNew, down: renderNew, parts: renderNew, prod: renderNew });
+resetFin(); resetFout(); resetRc(); resetRl(); resetDn(); resetPt(); resetPd();
+$("#pc-from").value = today().slice(0, 8) + "01"; $("#pc-to").value = today(); $("#dn-month").value = today().slice(0, 7);
+
+/* ---- مؤشر حالة الاتصال (متصل / أوفلاين / مزامنة) ---- */
+(function netPill() {
+  const pill = $("#net-pill"), lab = pill.querySelector("b"); let pending = 0;
+  const paint = () => {
+    const off = !navigator.onLine;
+    pill.classList.toggle("off", off); pill.classList.toggle("sync", !off && pending > 0);
+    lab.textContent = off ? (pending ? `أوفلاين · ${pending} بانتظار المزامنة` : "أوفلاين") : pending ? `جارٍ المزامنة (${pending})` : "متصل";
+  };
+  window.addEventListener("online", paint); window.addEventListener("offline", paint);
+  window.addEventListener("fz-sync", e => { pending = e.detail || 0; paint(); });
+  paint();
+})();
+
 
 /* ---------- 8) تسجيل الدخول والتشغيل ---------- */
 const AUTH_MSG = {
